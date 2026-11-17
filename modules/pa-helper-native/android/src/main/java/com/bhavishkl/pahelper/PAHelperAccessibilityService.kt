@@ -196,7 +196,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
 
     return rows
       .sortedBy { it.centerY }
-      .joinToString("\\n") { row ->
+      .joinToString("\n") { row ->
         row.lines
           .sortedBy { it.left }
           .joinToString(" ") { it.text }
