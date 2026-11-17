@@ -39,7 +39,7 @@ export default function App() {
     } catch (error) {
       Alert.alert('Could not load capture', error.message || 'Try again.');
     }
-  }, []);
+  }, [lastReviewedCaptureAt]);
 
   useEffect(() => {
     refreshCapture();
