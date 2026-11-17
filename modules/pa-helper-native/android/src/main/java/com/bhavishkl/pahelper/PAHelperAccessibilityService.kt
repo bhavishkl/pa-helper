@@ -63,7 +63,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
       val pending = volumeUpPresses
       volumeUpPresses = 0
       volumeShortcutRunnable = null
-      repeat(pending) { audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0) }
+      repeat(pending) { audioManager.adjustVolume(AudioManager.ADJUST_RAISE, 0) }
       return false
     }
     if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) {
