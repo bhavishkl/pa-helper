@@ -14,6 +14,45 @@ const formatMoney = (value) => '₹' + Number(value || 0).toLocaleString('en-IN'
   maximumFractionDigits: 2
 });
 
+
+const parsePaymentText = (raw) => {
+  const text = String(raw || '');
+  const lower = text.toLowerCase();
+  const isReceived = /received\s+from|credited\s+to/.test(lower);
+  const isPaid = /paid\s+to|sent\s+to|debited\s+from/.test(lower);
+  if (isReceived === isPaid) return { kind: 'unknown', amount: null, confidence: 'low', raw: text };
+
+  const type = isReceived ? 'add' : 'minus';
+  const partyMatch = isReceived
+    ? text.match(/received\s+from\s*([\s\S]{0,100}?)(?=\n|\d{1,2}:|banking name|phonepe transaction|utr:|$)/i)
+    : text.match(/(?:paid\s+to|sent\s+to)\s*([\s\S]{0,140}?)(?=\n|\d{1,2}:|banking name|transfer details|phonepe transaction|utr:|$)/i);
+  const bankingMatch = text.match(/banking\s+name\s*:\s*([^\n]+)/i);
+  const incomingParty = isReceived
+    ? (text.match(/\d{1,2}:\d{2}\s*(?:AM|PM)\s+on\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s*\n([^\n]+)/i)?.[1] || '')
+    : '';
+  const party = (incomingParty || bankingMatch?.[1] || partyMatch?.[1] || '').trim();
+
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const candidates = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/[+%•@]|5g#|utr|transaction id|banking name|phonepe|xx\d|\d{1,2}:\d{2}|\b20\d{2}\b/i.test(line)) continue;
+    if (!/^₹?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?\s*$/.test(line)) continue;
+    const amount = Number(line.replace(/[₹,\s]/g, ''));
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000) continue;
+    candidates.push(amount);
+  }
+  const unique = [...new Set(candidates)];
+  const amount = unique.length === 1 ? unique[0] : null;
+  return {
+    kind: type,
+    amount,
+    confidence: amount == null ? 'low' : 'review',
+    party,
+    raw: text
+  };
+};
+
 export default function App() {
   const [tab, setTab] = useState('home');
   const [capture, setCapture] = useState({ text: '', capturedAt: 0, status: 'empty' });
@@ -26,6 +65,15 @@ export default function App() {
   const [selectedAccountId, setSelectedAccountId] = useState(null);
   const [transactionAmount, setTransactionAmount] = useState('');
   const [transactionNote, setTransactionNote] = useState('');
+  const [editingAccountId, setEditingAccountId] = useState(null);
+  const [editingAccountName, setEditingAccountName] = useState('');
+  const [editingTransactionId, setEditingTransactionId] = useState(null);
+  const [editingTransactionType, setEditingTransactionType] = useState('add');
+  const [editingTransactionAmount, setEditingTransactionAmount] = useState('');
+  const [editingTransactionNote, setEditingTransactionNote] = useState('');
+  const [pendingPayment, setPendingPayment] = useState(null);
+  const [paymentAccountId, setPaymentAccountId] = useState('');
+  const [lastReviewedCaptureAt, setLastReviewedCaptureAt] = useState(0);
 
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === selectedAccountId) || null,
@@ -35,7 +83,18 @@ export default function App() {
   const refreshCapture = useCallback(async () => {
     if (!PAHelperNative) return;
     try {
-      setCapture(await PAHelperNative.getLatestCapture());
+      const latest = await PAHelperNative.getLatestCapture();
+      setCapture(latest);
+      if (latest.status === 'success' && latest.text && latest.capturedAt) {
+        if (latest.capturedAt === lastReviewedCaptureAt) return;
+        setLastReviewedCaptureAt(latest.capturedAt);
+        const parsed = parsePaymentText(latest.text);
+        if (parsed.kind !== 'unknown') {
+          setPendingPayment({ ...parsed, capturedAt: latest.capturedAt });
+          setPaymentAccountId('');
+          setTab('home');
+        }
+      }
     } catch (error) {
       Alert.alert('Could not load capture', error.message || 'Try again.');
     }
@@ -168,6 +227,93 @@ export default function App() {
     setTransactionNote('');
   };
 
+
+  const saveAccountName = () => {
+    const name = editingAccountName.trim();
+    if (!name) { Alert.alert('Account name required', 'Enter an account name.'); return; }
+    setAccounts((items) => items.map((a) => a.id === editingAccountId ? { ...a, name } : a));
+    setEditingAccountId(null);
+  };
+
+  const deleteAccount = (account) => Alert.alert(
+    'Delete account?',
+    'This also deletes all transactions in this account.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => {
+        setAccounts((items) => items.filter((a) => a.id !== account.id));
+        if (selectedAccountId === account.id) setSelectedAccountId(null);
+        setEditingAccountId(null);
+      }}
+    ]
+  );
+
+  const recalculateAccount = (account, entries) => {
+    const ordered = [...entries].sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+    let balance = 0;
+    const transactions = ordered.map((entry) => {
+      const sign = entry.type === 'minus' ? -1 : 1;
+      balance = Math.round((balance + sign * Number(entry.amount || 0)) * 100) / 100;
+      return { ...entry, balanceAfter: balance };
+    }).reverse();
+    return { ...account, balance, transactions };
+  };
+
+  const startEditTransaction = (entry) => {
+    setEditingTransactionId(entry.id);
+    setEditingTransactionType(entry.type === 'minus' ? 'minus' : 'add');
+    setEditingTransactionAmount(String(entry.amount));
+    setEditingTransactionNote(entry.note || '');
+  };
+
+  const saveTransactionEdit = () => {
+    const amount = Number(editingTransactionAmount);
+    if (!Number.isFinite(amount) || amount <= 0) { Alert.alert('Invalid amount', 'Enter an amount greater than zero.'); return; }
+    setAccounts((items) => items.map((account) => {
+      if (account.id !== selectedAccountId) return account;
+      const entries = (account.transactions || []).map((entry) => entry.id === editingTransactionId
+        ? { ...entry, type: editingTransactionType, amount: Math.round(amount * 100) / 100, note: editingTransactionNote.trim() }
+        : entry);
+      return recalculateAccount(account, entries);
+    }));
+    setEditingTransactionId(null);
+  };
+
+  const deleteTransaction = (entry) => Alert.alert(
+    'Delete transaction?',
+    'The account balance will be recalculated.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => {
+        setAccounts((items) => items.map((account) => account.id !== selectedAccountId ? account :
+          recalculateAccount(account, (account.transactions || []).filter((item) => item.id !== entry.id))));
+        if (editingTransactionId === entry.id) setEditingTransactionId(null);
+      }}
+    ]
+  );
+
+  const confirmPaymentImport = () => {
+    if (!pendingPayment) return;
+    const account = accounts.find((item) => item.id === paymentAccountId);
+    if (!account) { Alert.alert('Choose an account', 'Select which account should be updated.'); return; }
+    const amount = Number(pendingPayment.amount);
+    if (!Number.isFinite(amount) || amount <= 0) { Alert.alert('Confirm amount', 'Enter the correct amount before saving this transaction.'); return; }
+    const transaction = {
+      id: String(Date.now()) + '-ocr',
+      type: pendingPayment.kind,
+      amount: Math.round(amount * 100) / 100,
+      note: (pendingPayment.kind === 'add' ? 'Received from ' : 'Paid to ') + (pendingPayment.party || 'PhonePe transaction'),
+      createdAt: pendingPayment.capturedAt || Date.now(),
+      balanceAfter: 0,
+      source: 'phonepe-ocr'
+    };
+    setAccounts((items) => items.map((item) => item.id !== account.id ? item :
+      recalculateAccount(item, [transaction, ...(item.transactions || [])])));
+    setSelectedAccountId(account.id);
+    setPendingPayment(null);
+    setTab('accounts');
+  };
+
   const statusLabel = {
     success: 'Text captured',
     no_text_found: 'No readable text found',
@@ -205,6 +351,35 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
+      {pendingPayment ? (
+        <View style={styles.formCard}>
+          <Text style={styles.cardTitle}>PhonePe payment detected</Text>
+          <Text style={styles.currentBalance}>{pendingPayment.kind === 'add' ? 'Money received · Add to account' : 'Money paid · Deduct from account'}</Text>
+          <Text style={styles.fieldLabel}>AMOUNT (₹) — CHECK BEFORE SAVING</Text>
+          <TextInput
+            value={pendingPayment.amount == null ? '' : String(pendingPayment.amount)}
+            onChangeText={(value) => setPendingPayment((p) => ({ ...p, amount: value === '' ? null : Number(value) }))}
+            keyboardType="decimal-pad"
+            placeholder="Enter amount if not detected"
+            style={styles.input}
+          />
+          <Text style={styles.fieldLabel}>PARTY</Text>
+          <Text style={styles.captureText}>{pendingPayment.party || 'Not identified from OCR'}</Text>
+          <Text style={styles.fieldLabel}>SELECT ACCOUNT</Text>
+          {accounts.map((account) => (
+            <TouchableOpacity key={account.id} onPress={() => setPaymentAccountId(account.id)} style={[styles.accountCard, paymentAccountId === account.id && styles.accountCardSelected]}>
+              <Text style={styles.accountName}>{account.name} · {formatMoney(account.balance)}</Text>
+              {paymentAccountId === account.id ? <Text style={styles.selectedLabel}>SELECTED</Text> : null}
+            </TouchableOpacity>
+          ))}
+          {accounts.length === 0 ? <Text style={styles.emptyText}>Create an account first, then import this payment.</Text> : null}
+          <View style={styles.transactionButtons}>
+            <TouchableOpacity style={[styles.transactionButton, styles.addButton]} onPress={confirmPaymentImport}><Text style={styles.transactionButtonText}>Confirm transaction</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.transactionButton, styles.minusButton]} onPress={() => setPendingPayment(null)}><Text style={styles.transactionButtonText}>Dismiss</Text></TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Latest screen capture</Text>
         <Text style={styles.sectionHint}>{statusLabel.toUpperCase()}</Text>
@@ -216,7 +391,7 @@ export default function App() {
             <Text style={styles.captureMeta}>Captured {capture.capturedAt ? new Date(capture.capturedAt).toLocaleString() : ''}</Text>
           </>
         ) : (
-          <Text style={styles.emptyText}>Your extracted text appears here after the Volume Up double-press shortcut. Capture is on-demand only.</Text>
+          <Text style={styles.emptyText}>Your extracted text appears here after the Volume Up double-press shortcut. Volume changes are immediate.</Text>
         )}
         <TouchableOpacity style={styles.secondaryButton} onPress={refreshCapture}>
           <Text style={styles.secondaryButtonText}>Refresh captured text</Text>
@@ -298,8 +473,23 @@ export default function App() {
             <Text style={styles.accountBalance}>{formatMoney(account.balance)}</Text>
           </View>
           {selectedAccountId === account.id ? <Text style={styles.selectedLabel}>SELECTED ACCOUNT</Text> : null}
+          <View style={styles.crudActions}>
+            <TouchableOpacity onPress={() => { setEditingAccountId(account.id); setEditingAccountName(account.name); }}><Text style={styles.crudLink}>Edit name</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => deleteAccount(account)}><Text style={styles.crudDelete}>Delete account</Text></TouchableOpacity>
+          </View>
         </TouchableOpacity>
       ))}
+
+      {editingAccountId ? (
+        <View style={styles.formCard}>
+          <Text style={styles.cardTitle}>Edit account</Text>
+          <TextInput value={editingAccountName} onChangeText={setEditingAccountName} style={styles.input} maxLength={40} />
+          <View style={styles.transactionButtons}>
+            <TouchableOpacity style={[styles.transactionButton, styles.addButton]} onPress={saveAccountName}><Text style={styles.transactionButtonText}>Save</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.transactionButton, styles.minusButton]} onPress={() => setEditingAccountId(null)}><Text style={styles.transactionButtonText}>Cancel</Text></TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
 
       {selectedAccount ? (
         <View style={styles.formCard}>
@@ -334,6 +524,24 @@ export default function App() {
         </View>
       ) : null}
 
+      {selectedAccount && editingTransactionId ? (
+        <View style={styles.formCard}>
+          <Text style={styles.cardTitle}>Edit transaction</Text>
+          <View style={styles.transactionButtons}>
+            <TouchableOpacity style={[styles.transactionButton, styles.addButton]} onPress={() => setEditingTransactionType('add')}><Text style={styles.transactionButtonText}>＋ Add</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.transactionButton, styles.minusButton]} onPress={() => setEditingTransactionType('minus')}><Text style={styles.transactionButtonText}>− Minus</Text></TouchableOpacity>
+          </View>
+          <Text style={styles.fieldLabel}>AMOUNT (₹)</Text>
+          <TextInput value={editingTransactionAmount} onChangeText={setEditingTransactionAmount} keyboardType="decimal-pad" style={styles.input} />
+          <Text style={styles.fieldLabel}>NOTE</Text>
+          <TextInput value={editingTransactionNote} onChangeText={setEditingTransactionNote} style={styles.input} />
+          <View style={styles.transactionButtons}>
+            <TouchableOpacity style={[styles.transactionButton, styles.addButton]} onPress={saveTransactionEdit}><Text style={styles.transactionButtonText}>Save changes</Text></TouchableOpacity>
+            <TouchableOpacity style={[styles.transactionButton, styles.minusButton]} onPress={() => setEditingTransactionId(null)}><Text style={styles.transactionButtonText}>Cancel</Text></TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
+
       {selectedAccount && (selectedAccount.transactions || []).length > 0 ? (
         <View style={styles.historyCard}>
           <Text style={styles.cardTitle}>Recent entries · {selectedAccount.name}</Text>
@@ -342,6 +550,10 @@ export default function App() {
               <View style={styles.historyCopy}>
                 <Text style={styles.historyTitle}>{entry.note || (entry.type === 'opening' ? 'Opening balance' : entry.type === 'add' ? 'Added' : 'Deducted')}</Text>
                 <Text style={styles.historyDate}>{new Date(entry.createdAt).toLocaleString()}</Text>
+                <View style={styles.crudActions}>
+                  <TouchableOpacity onPress={() => startEditTransaction(entry)}><Text style={styles.crudLink}>Edit</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteTransaction(entry)}><Text style={styles.crudDelete}>Delete</Text></TouchableOpacity>
+                </View>
               </View>
               <View style={styles.historyAmountWrap}>
                 <Text style={[styles.historyAmount, entry.type === 'minus' && styles.negativeAmount]}>
@@ -433,6 +645,9 @@ const styles = StyleSheet.create({
   accountMeta: { color: '#9AA3B2', fontSize: 10, marginTop: 4 },
   accountBalance: { color: '#243B70', fontSize: 14, fontWeight: '800' },
   selectedLabel: { color: '#496BA8', fontSize: 9, fontWeight: '800', letterSpacing: 1, marginTop: 10 },
+  crudActions: { flexDirection: 'row', gap: 18, marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F0F2F6' },
+  crudLink: { color: '#365A9A', fontSize: 11, fontWeight: '800', paddingVertical: 4 },
+  crudDelete: { color: '#B54747', fontSize: 11, fontWeight: '800', paddingVertical: 4 },
   currentBalance: { color: '#496BA8', fontSize: 12, fontWeight: '700', marginBottom: 5 },
   transactionButtons: { flexDirection: 'row', gap: 9, marginTop: 14 },
   transactionButton: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: 'center' },
