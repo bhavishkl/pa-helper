@@ -37,26 +37,26 @@ const parsePaymentText = (raw) => {
   const phonePeId = text.match(/PhonePe\s+Transaction\s+ID[\s\S]{0,60}?\b(T\d{10,})\b/i)?.[1] || '';
 
   const candidates = [];
-  const numericAmountPattern = /^(?:\\+\\s*)?(?:(?:\\d{1,3}(?:,\\d{2,3})+)|\\d+)(?:\\.\\d{1,2})?$/;
+  const numericAmountPattern = /^(?:\+\s*)?(?:(?:\d{1,3}(?:,\d{2,3})+)|\d+)(?:\.\d{1,2})?$/;
 
   for (let index = 0; index < lines.length; index += 1) {
     const originalLine = lines[index];
-    if (/%|@|•|5g#|utr|transaction id|banking name|phonepe|xx\\d|\\d{1,2}:\\d{2}|\\b20\\d{2}\\b/i.test(originalLine)) continue;
+    if (/%|@|•|5g#|utr|transaction id|banking name|phonepe|xx\d|\d{1,2}:\d{2}|\b20\d{2}\b/i.test(originalLine)) continue;
 
     // OCR may put the currency marker on its own line, or append /- after the amount.
     const previousLine = index > 0 ? lines[index - 1] : '';
-    const currencyOnPreviousLine = /^(?:₹|rs\\.?|inr)$/i.test(previousLine.trim());
-    const hasCurrencyMarker = /₹|\\brs\\.?(?=\\s|$)|\\binr\\b/i.test(originalLine) || currencyOnPreviousLine;
+    const currencyOnPreviousLine = /^(?:₹|rs\.?|inr)$/i.test(previousLine.trim());
+    const hasCurrencyMarker = /₹|\brs\.?(?=\s|$)|\binr\b/i.test(originalLine) || currencyOnPreviousLine;
     const normalized = originalLine
-      .replace(/₹|\\brs\\.?(?=\\s|$)|\\binr\\b/gi, '')
-      .replace(/\\s*(?:\\/\\-|\\-\\/)\\s*$/g, '')
-      .replace(/\\b(?:only|rupees?)\\b/gi, '')
+      .replace(/₹|\brs\.?(?=\s|$)|\binr\b/gi, '')
+      .replace(/\s*(?:\/\-|\-\/)\s*$/g, '')
+      .replace(/\b(?:only|rupees?)\b/gi, '')
       .replace(/,/g, '')
-      .replace(/\\s+/g, '')
+      .replace(/\s+/g, '')
       .trim();
 
     if (!numericAmountPattern.test(normalized)) continue;
-    const value = Number(normalized.replace(/^\\+/, ''));
+    const value = Number(normalized.replace(/^\+/, ''));
     if (Number.isFinite(value) && value > 0 && value <= 100000000) {
       candidates.push({ value, hasCurrencyMarker, source: originalLine });
     }
