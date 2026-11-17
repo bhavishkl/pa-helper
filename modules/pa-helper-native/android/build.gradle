@@ -7,7 +7,9 @@ group = 'com.bhavishkl.pahelper'
 version = '1.0.0'
 
 android {
-  namespace "com.bhavishkl.pahelper"
+  // Keep the library namespace distinct from the host app namespace.
+  // The Kotlin source package remains com.bhavishkl.pahelper.
+  namespace "com.bhavishkl.pahelper.nativebridge"
 
   defaultConfig {
     minSdkVersion 24
