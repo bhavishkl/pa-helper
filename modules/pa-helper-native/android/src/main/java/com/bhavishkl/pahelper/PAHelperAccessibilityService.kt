@@ -15,6 +15,7 @@ import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 class PAHelperAccessibilityService : AccessibilityService() {
@@ -109,7 +110,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
           val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
           recognizer.process(InputImage.fromBitmap(capturedBitmap, 0))
             .addOnSuccessListener { result ->
-              val text = result.text.trim()
+              val text = buildReadingOrderText(result)
               finishCapture(
                 text,
                 if (text.isBlank()) "no_text_found" else "success",
@@ -132,6 +133,75 @@ class PAHelperAccessibilityService : AccessibilityService() {
     } catch (_: Exception) {
       finishCapture("", "screenshot_request_failed", onComplete)
     }
+  }
+
+  /**
+   * ML Kit's result.text can concatenate separate text blocks in an order that
+   * does not match the screen layout. Rebuild the text from line bounding boxes:
+   * group lines on the same visual row, then read each row from left to right.
+   */
+  private fun buildReadingOrderText(result: Text): String {
+    data class PositionedLine(
+      val text: String,
+      val left: Int,
+      val top: Int,
+      val bottom: Int,
+      val centerY: Double
+    )
+
+    val positioned = result.textBlocks
+      .flatMap { block -> block.lines }
+      .mapNotNull { line ->
+        val bounds = line.boundingBox ?: return@mapNotNull null
+        PositionedLine(
+          text = line.text.trim(),
+          left = bounds.left,
+          top = bounds.top,
+          bottom = bounds.bottom,
+          centerY = (bounds.top + bounds.bottom) / 2.0
+        )
+      }
+      .filter { it.text.isNotEmpty() }
+      .sortedBy { it.centerY }
+
+    if (positioned.isEmpty()) return result.text.trim()
+
+    data class VisualRow(
+      val lines: MutableList<PositionedLine>,
+      var top: Int,
+      var bottom: Int
+    ) {
+      val centerY: Double get() = (top + bottom) / 2.0
+    }
+
+    val rows = mutableListOf<VisualRow>()
+    for (line in positioned) {
+      val matchingRow = rows
+        .filter { row ->
+          val overlap = minOf(row.bottom, line.bottom) - maxOf(row.top, line.top)
+          val minHeight = minOf(row.bottom - row.top, line.bottom - line.top).coerceAtLeast(1)
+          val centerDistance = kotlin.math.abs(row.centerY - line.centerY)
+          overlap.toDouble() / minHeight >= 0.30 || centerDistance <= minHeight * 0.45
+        }
+        .minByOrNull { kotlin.math.abs(it.centerY - line.centerY) }
+
+      if (matchingRow == null) {
+        rows.add(VisualRow(mutableListOf(line), line.top, line.bottom))
+      } else {
+        matchingRow.lines.add(line)
+        matchingRow.top = minOf(matchingRow.top, line.top)
+        matchingRow.bottom = maxOf(matchingRow.bottom, line.bottom)
+      }
+    }
+
+    return rows
+      .sortedBy { it.centerY }
+      .joinToString("\\n") { row ->
+        row.lines
+          .sortedBy { it.left }
+          .joinToString(" ") { it.text }
+      }
+      .trim()
   }
 
   private fun finishCapture(text: String, status: String, onComplete: () -> Unit) {
