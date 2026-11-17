@@ -27,51 +27,53 @@ const parsePaymentText = (raw) => {
   const bankingName = text.match(/banking\s+name\s*:\s*([^\n]+)/i)?.[1]?.trim() || '';
   const dateMatch = text.match(/(\d{1,2}:\d{2}\s*(?:AM|PM)\s+on\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4})/i);
   const paymentDateText = dateMatch?.[1] || '';
-  const incomingParty = isReceived
-    ? (text.match(/received\s+from[\s\S]*?\d{1,2}:\d{2}\s*(?:AM|PM)\s+on\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s*\n([^\n]+)/i)?.[1] || '')
-    : '';
-  const party = (isReceived ? incomingParty : bankingName) ||
-    bankingName ||
-    (isPaid ? (text.match(/(?:paid\s+to|sent\s+to)\s*\n([^\n]+)/i)?.[1] || '') : '');
+
+  // Accessibility often puts "Received from" and the payer name on one row.
+  // OCR can instead put the name on the next row. Support both layouts.
+  const receivedMatch = text.match(/received\s+from\s*[:\-]?\s*([^\n]*)/i);
+  const sentMatch = text.match(/(?:paid\s+to|sent\s+to)\s*[:\-]?\s*([^\n]*)/i);
+  const cleanParty = (value) => String(value || '')
+    .replace(/₹\s*[\d,]+(?:\.\d{1,2})?/g, '')
+    .replace(/\b(?:rs\.?|inr)\s*[\d,]+(?:\.\d{1,2})?/gi, '')
+    .replace(/\b(?:transaction successful|payment successful|completed|successful)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s:|·-]+|[\s|·-]+$/g, '')
+    .trim();
+  let party = cleanParty(isReceived ? receivedMatch?.[1] : sentMatch?.[1]);
+  if (!party || /^(?:₹|rs\.?|inr)?\s*[\d,.]+(?:\/-)?$/i.test(party)) {
+    const index = lines.findIndex((line) => /received\s+from|paid\s+to|sent\s+to/i.test(line));
+    const next = index >= 0 ? lines[index + 1] : '';
+    party = cleanParty(next);
+  }
+  party = cleanParty(party || bankingName);
+
   const utr = text.match(/\bUTR\s*:\s*([A-Z0-9]+)/i)?.[1] || '';
   const phonePeId = text.match(/PhonePe\s+Transaction\s+ID[\s\S]{0,60}?\b(T\d{10,})\b/i)?.[1] || '';
 
+  // First extract currency-labelled amounts even when name and amount share a row.
+  const currencyPattern = /(?:₹\s*|(?:rs\.?|inr)\s*)(\d{1,3}(?:,\d{2,3})+|\d+)(?:\.(\d{1,2}))?/gi;
+  const currencyValues = [...text.matchAll(currencyPattern)]
+    .map((match) => Number((match[1] || '').replace(/,/g, '') + (match[2] ? '.' + match[2] : '')))
+    .filter((value) => Number.isFinite(value) && value > 0 && value <= 100000000);
+
   const candidates = [];
-  const numericAmountPattern = /^(?:\+\s*)?(?:(?:\d{1,3}(?:,\d{2,3})+)|\d+)(?:\.\d{1,2})?$/;
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const originalLine = lines[index];
-    if (/%|@|•|5g#|utr|transaction id|banking name|phonepe|xx\d|\d{1,2}:\d{2}|\b20\d{2}\b/i.test(originalLine)) continue;
-
-    // OCR may put the currency marker on its own line, or append /- after the amount.
-    const previousLine = index > 0 ? lines[index - 1] : '';
-    const currencyOnPreviousLine = /^(?:₹|rs\.?|inr)$/i.test(previousLine.trim());
-    const hasCurrencyMarker = /₹|\brs\.?(?=\s|$)|\binr\b/i.test(originalLine) || currencyOnPreviousLine;
-    const normalized = originalLine
-      .replace(/₹|\brs\.?(?=\s|$)|\binr\b/gi, '')
-      .replace(/\s*(?:\/\-|\-\/)\s*$/g, '')
-      .replace(/\b(?:only|rupees?)\b/gi, '')
-      .replace(/,/g, '')
-      .replace(/\s+/g, '')
-      .trim();
-
-    if (!numericAmountPattern.test(normalized)) continue;
-    const value = Number(normalized.replace(/^\+/, ''));
-    if (Number.isFinite(value) && value > 0 && value <= 100000000) {
-      candidates.push({ value, hasCurrencyMarker, source: originalLine });
+  for (const line of lines) {
+    if (/%|@|•|5g#|utr|transaction id|banking name|phonepe|xx\d|\d{1,2}:\d{2}|\b20\d{2}\b/i.test(line)) continue;
+    const tokens = line.match(/(?:₹\s*|(?:rs\.?|inr)\s*)?\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?(?:\s*\/-)?/gi) || [];
+    for (const token of tokens) {
+      const cleaned = token.replace(/[₹,\s]|rs\.?|inr|\/-/gi, '');
+      const value = Number(cleaned);
+      if (Number.isFinite(value) && value > 0 && value <= 100000000) candidates.push(value);
     }
   }
-
-  // Prefer explicitly currency-marked values. Otherwise accept only one distinct
-  // numeric value; repeated OCR copies such as "7,900" and "7900" are deduplicated.
-  const currencyCandidates = candidates.filter((item) => item.hasCurrencyMarker);
-  const preferredCandidates = currencyCandidates.length ? currencyCandidates : candidates;
-  const uniqueAmounts = [...new Set(preferredCandidates.map((item) => item.value))];
+  const preferred = currencyValues.length ? currencyValues : candidates;
+  const uniqueAmounts = [...new Set(preferred)];
   const amount = uniqueAmounts.length === 1 ? uniqueAmounts[0] : null;
-  const amountCandidates = [...new Set(candidates.map((item) => item.value))];
+  const amountCandidates = [...new Set([...currencyValues, ...candidates])];
   const parsedDate = paymentDateText ? Date.parse(paymentDateText.replace(/\s+on\s+/i, ' ')) : NaN;
   return {
-    kind, amount, amountCandidates, confidence: amount == null ? 'low' : (currencyCandidates.length ? 'currency_match_review' : 'review'),
+    kind, amount, amountCandidates,
+    confidence: amount == null ? 'low' : (currencyValues.length ? 'currency_match_review' : 'review'),
     party, paymentDateText, transactionAt: Number.isFinite(parsedDate) ? parsedDate : null,
     utr, phonePeId, bank: (text.match(/(?:UPI|LPD)\s+([A-Z ]+BANK)/i)?.[1] || '').trim(),
     raw: text
@@ -179,7 +181,7 @@ export default function App() {
       } else if (result.status === 'shortcut_ready') {
         Alert.alert(
           'Volume shortcut ready',
-          'Every Volume Up press changes volume immediately. A second press within 1.2 seconds also captures a screenshot and opens PA Helper for payment review, even during media playback.'
+          'When media is not playing, volume changes are briefly delayed so a double press can be detected; a double press captures a screenshot and still applies both volume increases. During media playback, volume works normally and the double press also captures.'
         );
       }
     } catch (error) {
@@ -390,7 +392,7 @@ export default function App() {
       <View style={styles.hero}>
         <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>VOLUME SHORTCUT</Text></View>
         <Text style={styles.heroTitle}>Capture without{ '\n' }an overlay.</Text>
-        <Text style={styles.heroDescription}>Every press changes volume immediately. Press twice within 1.2 seconds to capture and open PA Helper for payment review.</Text>
+        <Text style={styles.heroDescription}>When media is not playing, a short delay detects a double press. Both presses still change volume, and a double press also captures and opens PA Helper.</Text>
         <TouchableOpacity activeOpacity={0.85} style={styles.primaryButton} onPress={enableAssistant} disabled={busy}>
           <Text style={styles.primaryButtonText}>{busy ? 'Opening permissions…' : 'Enable volume shortcut  →'}</Text>
         </TouchableOpacity>

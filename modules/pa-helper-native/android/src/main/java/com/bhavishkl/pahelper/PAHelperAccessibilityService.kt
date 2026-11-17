@@ -58,12 +58,24 @@ class PAHelperAccessibilityService : AccessibilityService() {
    */
   override fun onKeyEvent(event: KeyEvent): Boolean {
     if (event.keyCode != KeyEvent.KEYCODE_VOLUME_UP) return false
-    if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) return false
+    if (audioManager.isMusicActive) {
+      volumeShortcutRunnable?.let { keyHandler.removeCallbacks(it) }
+      val pending = volumeUpPresses
+      volumeUpPresses = 0
+      volumeShortcutRunnable = null
+      repeat(pending) { audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0) }
+      return false
+    }
+    if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) {
+      return event.keyCode == KeyEvent.KEYCODE_VOLUME_UP
+    }
 
     if (volumeUpPresses == 0) {
       volumeShortcutRunnable = Runnable {
+        val pending = volumeUpPresses
         volumeUpPresses = 0
         volumeShortcutRunnable = null
+        repeat(pending) { audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0) }
       }
       keyHandler.postDelayed(volumeShortcutRunnable!!, VOLUME_SHORTCUT_WINDOW_MS)
     }
@@ -72,7 +84,9 @@ class PAHelperAccessibilityService : AccessibilityService() {
     if (volumeUpPresses >= VOLUME_SHORTCUT_PRESS_COUNT) {
       volumeShortcutRunnable?.let { keyHandler.removeCallbacks(it) }
       volumeShortcutRunnable = null
+      val pending = volumeUpPresses
       volumeUpPresses = 0
+      repeat(pending) { audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0) }
       val accessibilityText = captureAccessibilityText()
       if (isUsefulAccessibilityText(accessibilityText)) {
         saveCapture(accessibilityText, "success", "Accessibility")
@@ -81,7 +95,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
         captureOneScreenshot { openPAHelperHome() }
       }
     }
-    return false
+    return true
   }
 
 
