@@ -46,9 +46,9 @@ const parsePaymentText = (raw) => {
     // OCR may put the currency marker on its own line, or append /- after the amount.
     const previousLine = index > 0 ? lines[index - 1] : '';
     const currencyOnPreviousLine = /^(?:₹|rs\\.?|inr)$/i.test(previousLine.trim());
-    const hasCurrencyMarker = /₹|\\brs\\.?\\b|\\binr\\b/i.test(originalLine) || currencyOnPreviousLine;
+    const hasCurrencyMarker = /₹|\\brs\\.?(?=\\s|$)|\\binr\\b/i.test(originalLine) || currencyOnPreviousLine;
     const normalized = originalLine
-      .replace(/₹|\\brs\\.?\\b|\\binr\\b/gi, '')
+      .replace(/₹|\\brs\\.?(?=\\s|$)|\\binr\\b/gi, '')
       .replace(/\\s*(?:\\/\\-|\\-\\/)\\s*$/g, '')
       .replace(/\\b(?:only|rupees?)\\b/gi, '')
       .replace(/,/g, '')
