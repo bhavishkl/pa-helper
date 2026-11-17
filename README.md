@@ -43,3 +43,18 @@ Only extracted text, status and capture time are retained locally. The screensho
 - If only one or two presses occur, PA Helper replays the normal volume increases after the 1.2-second shortcut window.
 - If media playback is active, volume keys pass through normally and never trigger the shortcut.
 - This shortcut uses Android accessibility key-event filtering. Secure/protected screens may still prevent screenshots, and Android/OEM restrictions can affect global key delivery.
+
+
+## Volume Up double-press shortcut
+
+- When media is not playing, press **Volume Up twice within 1.2 seconds** to capture exactly one screenshot and run on-device OCR.
+- If only one press occurs, PA Helper replays the normal volume increase after the 1.2-second shortcut window.
+- If media playback is active, volume keys pass through normally and do not trigger a screenshot.
+- Android accessibility key-event filtering is used for the global shortcut. Secure screens may still block screenshots.
+
+## Accounts
+
+- Create multiple accounts with a name and opening balance.
+- Select an account and record an amount using **Add amount** or **Minus amount**.
+- Each entry records its amount, optional note, timestamp and resulting balance.
+- Account data is stored locally in the app's private Android SharedPreferences. It is not synced to a server. Clearing app data or uninstalling the app removes the local records.

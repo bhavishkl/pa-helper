@@ -28,7 +28,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
       private set
 
     private const val VOLUME_SHORTCUT_WINDOW_MS = 1200L
-    private const val VOLUME_SHORTCUT_PRESS_COUNT = 3
+    private const val VOLUME_SHORTCUT_PRESS_COUNT = 2
   }
 
   @Volatile
@@ -49,7 +49,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
   }
 
   /**
-   * Volume Up x3 within 1.2 seconds captures one screenshot only when media
+   * Volume Up x2 within 1.2 seconds captures one screenshot only when media
    * playback is not active. Incomplete sequences are replayed as normal
    * volume adjustments. During media playback, volume events pass through.
    */

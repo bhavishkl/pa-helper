@@ -10,6 +10,23 @@ class PAHelperModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("PAHelperNative")
 
+    AsyncFunction("getAccounts") {
+      val context = appContext.reactContext
+        ?: throw IllegalStateException("React context is not available")
+      context.getSharedPreferences("pa_helper_accounts", 0)
+        .getString("accounts_json", "[]") ?: "[]"
+    }
+
+    AsyncFunction("saveAccounts") { accountsJson: String ->
+      val context = appContext.reactContext
+        ?: throw IllegalStateException("React context is not available")
+      context.getSharedPreferences("pa_helper_accounts", 0)
+        .edit()
+        .putString("accounts_json", accountsJson)
+        .apply()
+      mapOf("status" to "saved")
+    }
+
     AsyncFunction("enableVolumeShortcut") {
       val context = appContext.reactContext
         ?: throw IllegalStateException("React context is not available")
