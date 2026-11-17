@@ -1,5 +1,13 @@
-import React from 'react';
-import { SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  AppState, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text,
+  TouchableOpacity, View, Alert, Platform
+} from 'react-native';
+import { requireNativeModule } from 'expo-modules-core';
+
+const PAHelperNative = Platform.OS === 'android'
+  ? requireNativeModule('PAHelperNative')
+  : null;
 
 const actions = [
   { icon: '✓', title: 'My tasks', subtitle: 'Keep track of what matters', color: '#E8F1FF' },
@@ -10,7 +18,7 @@ const actions = [
 
 function ActionCard({ item }) {
   return (
-    <TouchableOpacity activeOpacity={0.75} style={styles.actionCard} accessibilityRole="button" accessibilityLabel={item.title}>
+    <TouchableOpacity activeOpacity={0.75} style={styles.actionCard} accessibilityRole="button">
       <View style={[styles.actionIcon, { backgroundColor: item.color }]}>
         <Text style={styles.actionIconText}>{item.icon}</Text>
       </View>
@@ -24,6 +32,76 @@ function ActionCard({ item }) {
 }
 
 export default function App() {
+  const [capture, setCapture] = useState({ text: '', capturedAt: 0, status: 'empty' });
+  const [busy, setBusy] = useState(false);
+
+  const refreshCapture = useCallback(async () => {
+    if (!PAHelperNative) return;
+    try {
+      setCapture(await PAHelperNative.getLatestCapture());
+    } catch (error) {
+      Alert.alert('Could not load capture', error.message || 'Try again.');
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCapture();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshCapture();
+    });
+    return () => subscription.remove();
+  }, [refreshCapture]);
+
+  const enableAssistant = async () => {
+    if (!PAHelperNative) {
+      Alert.alert('Android only', 'The floating assistant is available in the Android app.');
+      return;
+    }
+    try {
+      setBusy(true);
+      const result = await PAHelperNative.startFloatingAssistant();
+      if (result.status === 'overlay_permission_required') {
+        Alert.alert(
+          'Allow display over other apps',
+          'Enable “Display over other apps” for PA Helper, return here, and tap Enable floating assistant again.'
+        );
+      } else {
+        Alert.alert(
+          'Screen capture permission',
+          'Approve Android’s screen-capture prompt. After it starts, switch to another app and tap the floating PA button.'
+        );
+      }
+    } catch (error) {
+      Alert.alert('Could not start assistant', error.message || 'Check Android permissions and try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stopAssistant = async () => {
+    try {
+      await PAHelperNative?.stopFloatingAssistant();
+      Alert.alert('PA Helper', 'Floating assistant stopped.');
+    } catch (error) {
+      Alert.alert('Could not stop assistant', error.message || 'Try again.');
+    }
+  };
+
+  const statusLabel = {
+    success: 'Text captured',
+    no_text_found: 'No readable text found',
+    capture_not_ready: 'Capture permission not ready',
+    capture_error: 'Capture failed',
+    ocr_failed: 'Text recognition failed',
+    overlay_permission_missing: 'Overlay permission missing',
+    overlay_failed: 'Could not display floating button',
+    no_frame_received: 'No screen frame received',
+    capture_in_progress: 'Capture already in progress',
+    display_unavailable: 'Display unavailable',
+    image_processing_failed: 'Image processing failed',
+    empty: 'Nothing captured yet'
+  }[capture.status] || capture.status;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F7F8FC" />
@@ -32,19 +110,41 @@ export default function App() {
           <View>
             <Text style={styles.eyebrow}>PERSONAL ASSISTANT</Text>
             <Text style={styles.greeting}>Good day 👋</Text>
-            <Text style={styles.headerSubtitle}>What would you like to do?</Text>
+            <Text style={styles.headerSubtitle}>Your screen context, one tap away.</Text>
           </View>
           <View style={styles.avatar}><Text style={styles.avatarText}>P</Text></View>
         </View>
 
         <View style={styles.hero}>
-          <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>YOUR DAY, IN CONTROL</Text></View>
-          <Text style={styles.heroTitle}>A little more{ '\n' }organized.</Text>
-          <Text style={styles.heroDescription}>Your personal space for tasks, notes and reminders — all in one place.</Text>
-          <TouchableOpacity activeOpacity={0.85} style={styles.primaryButton} accessibilityRole="button">
-            <Text style={styles.primaryButtonText}>Get started <Text style={styles.buttonArrow}>→</Text></Text>
+          <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>TAP TO CAPTURE</Text></View>
+          <Text style={styles.heroTitle}>Your context.{ '\n' }Collected simply.</Text>
+          <Text style={styles.heroDescription}>Enable the floating PA button, tap it on any screen, and bring recognized text back here.</Text>
+          <TouchableOpacity activeOpacity={0.85} style={styles.primaryButton} onPress={enableAssistant} disabled={busy}>
+            <Text style={styles.primaryButtonText}>{busy ? 'Opening permissions…' : 'Enable floating assistant  →'}</Text>
           </TouchableOpacity>
-          <View style={styles.heroDecoration} />
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Latest screen capture</Text>
+          <Text style={styles.sectionHint}>{statusLabel.toUpperCase()}</Text>
+        </View>
+        <View style={styles.captureCard}>
+          {capture.text ? (
+            <>
+              <Text style={styles.captureText}>{capture.text}</Text>
+              <Text style={styles.captureMeta}>
+                Captured {capture.capturedAt ? new Date(capture.capturedAt).toLocaleString() : ''}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.emptyText}>Your extracted screen text will appear here after you tap the floating PA button.</Text>
+          )}
+          <TouchableOpacity style={styles.secondaryButton} onPress={refreshCapture}>
+            <Text style={styles.secondaryButtonText}>Refresh captured text</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.stopButton} onPress={stopAssistant}>
+            <Text style={styles.stopButtonText}>Stop floating assistant</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.sectionHeader}>
@@ -58,8 +158,8 @@ export default function App() {
         <View style={styles.tipCard}>
           <Text style={styles.tipIcon}>✦</Text>
           <View style={styles.tipCopy}>
-            <Text style={styles.tipTitle}>A fresh start</Text>
-            <Text style={styles.tipText}>Your assistant is ready. Add a task or jot down a note to get going.</Text>
+            <Text style={styles.tipTitle}>Privacy by design</Text>
+            <Text style={styles.tipText}>Screen text is recognized on-device. Review extracted payment details before saving them. Secure screens may block capture.</Text>
           </View>
         </View>
         <Text style={styles.footer}>PA HELPER  •  MADE TO KEEP THINGS SIMPLE</Text>
@@ -81,14 +181,20 @@ const styles = StyleSheet.create({
   heroBadge: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.13)', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 20 },
   heroBadgeText: { color: '#D9E6FF', fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
   heroTitle: { color: '#FFFFFF', fontSize: 34, lineHeight: 39, fontWeight: '800', letterSpacing: -1, marginTop: 18 },
-  heroDescription: { color: '#D5DFF2', fontSize: 13, lineHeight: 20, maxWidth: 255, marginTop: 9 },
+  heroDescription: { color: '#D5DFF2', fontSize: 13, lineHeight: 20, maxWidth: 270, marginTop: 9 },
   primaryButton: { alignSelf: 'flex-start', backgroundColor: '#FFFFFF', paddingHorizontal: 17, paddingVertical: 12, borderRadius: 13, marginTop: 19 },
-  primaryButtonText: { color: '#243B70', fontSize: 13, fontWeight: '800' },
-  buttonArrow: { fontSize: 16 },
-  heroDecoration: { position: 'absolute', width: 170, height: 170, borderRadius: 85, borderWidth: 28, borderColor: 'rgba(255,255,255,0.06)', right: -62, bottom: -82 },
+  primaryButtonText: { color: '#243B70', fontSize: 12, fontWeight: '800' },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   sectionTitle: { color: '#17233B', fontSize: 19, fontWeight: '800' },
-  sectionHint: { color: '#9AA3B2', fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  sectionHint: { color: '#9AA3B2', fontSize: 9, fontWeight: '800', letterSpacing: 1.1, maxWidth: 135, textAlign: 'right' },
+  captureCard: { backgroundColor: '#FFFFFF', borderRadius: 17, padding: 16, borderWidth: 1, borderColor: '#EEF0F5', marginBottom: 28 },
+  captureText: { color: '#273449', fontSize: 13, lineHeight: 20 },
+  captureMeta: { color: '#9AA3B2', fontSize: 10, marginTop: 12 },
+  emptyText: { color: '#8B93A2', fontSize: 12, lineHeight: 19 },
+  secondaryButton: { backgroundColor: '#EEF3FC', padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 14 },
+  secondaryButtonText: { color: '#243B70', fontSize: 12, fontWeight: '800' },
+  stopButton: { padding: 10, alignItems: 'center', marginTop: 5 },
+  stopButtonText: { color: '#9B4B4B', fontSize: 11, fontWeight: '700' },
   actions: { gap: 10 },
   actionCard: { backgroundColor: '#FFFFFF', borderRadius: 17, padding: 14, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#EEF0F5' },
   actionIcon: { width: 43, height: 43, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },

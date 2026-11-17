@@ -1,0 +1,19 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.bhavishkl.pahelper'
+version = '1.0.0'
+
+android {
+  namespace "com.bhavishkl.pahelper"
+  compileSdkVersion safeExtGet("compileSdkVersion", 36)
+
+  defaultConfig {
+    minSdkVersion safeExtGet("minSdkVersion", 24)
+    targetSdkVersion safeExtGet("targetSdkVersion", 36)
+  }
+}
+
+dependencies {
+  implementation "com.google.mlkit:text-recognition:16.0.1"
+}
