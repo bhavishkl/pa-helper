@@ -65,3 +65,6 @@ Only extracted text, status and capture time are retained locally. The screensho
 Every Volume Up press is passed through to Android immediately, so volume changes are not delayed or suppressed. A second press within 1.2 seconds independently triggers a one-shot screenshot, regardless of media playback.
 
 The Accounts screen supports creating, viewing, renaming and deleting accounts, plus adding, viewing, editing and deleting ledger transactions. Account balances are recalculated from the transaction history after edits or deletions. Data is stored locally on the device.
+
+
+After the double-press OCR completes, PA Helper opens automatically and presents a review card for recognized PhonePe received/paid transactions. Verify the amount, choose the destination account, then confirm; OCR never posts a transaction without confirmation. Account editing includes the account name and opening balance.

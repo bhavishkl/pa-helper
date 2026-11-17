@@ -18,37 +18,38 @@ const formatMoney = (value) => '₹' + Number(value || 0).toLocaleString('en-IN'
 const parsePaymentText = (raw) => {
   const text = String(raw || '');
   const lower = text.toLowerCase();
-  const isReceived = /received\s+from|credited\s+to/.test(lower);
-  const isPaid = /paid\s+to|sent\s+to|debited\s+from/.test(lower);
+  const isReceived = /received\\s+from|credited\\s+to/.test(lower);
+  const isPaid = /paid\\s+to|sent\\s+to|debited\\s+from/.test(lower);
   if (isReceived === isPaid) return { kind: 'unknown', amount: null, confidence: 'low', raw: text };
 
-  const type = isReceived ? 'add' : 'minus';
-  const partyMatch = isReceived
-    ? text.match(/received\s+from\s*([\s\S]{0,100}?)(?=\n|\d{1,2}:|banking name|phonepe transaction|utr:|$)/i)
-    : text.match(/(?:paid\s+to|sent\s+to)\s*([\s\S]{0,140}?)(?=\n|\d{1,2}:|banking name|transfer details|phonepe transaction|utr:|$)/i);
-  const bankingMatch = text.match(/banking\s+name\s*:\s*([^\n]+)/i);
+  const kind = isReceived ? 'add' : 'minus';
+  const lines = text.split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean);
+  const bankingName = text.match(/banking\\s+name\\s*:\\s*([^\\n]+)/i)?.[1]?.trim() || '';
+  const dateMatch = text.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\s+on\\s+\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4})/i);
+  const paymentDateText = dateMatch?.[1] || '';
   const incomingParty = isReceived
-    ? (text.match(/\d{1,2}:\d{2}\s*(?:AM|PM)\s+on\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s*\n([^\n]+)/i)?.[1] || '')
+    ? (text.match(/received\\s+from[\\s\\S]*?\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\s+on\\s+\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}\\s*\\n([^\\n]+)/i)?.[1] || '')
     : '';
-  const party = (incomingParty || bankingMatch?.[1] || partyMatch?.[1] || '').trim();
+  const party = (isReceived ? incomingParty : bankingName) ||
+    bankingName ||
+    (isPaid ? (text.match(/(?:paid\\s+to|sent\\s+to)\\s*\\n([^\\n]+)/i)?.[1] || '') : '');
+  const utr = text.match(/\\bUTR\\s*:\\s*([A-Z0-9]+)/i)?.[1] || '';
+  const phonePeId = text.match(/PhonePe\\s+Transaction\\s+ID[\\s\\S]{0,60}?\\b(T\\d{10,})\\b/i)?.[1] || '';
 
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const candidates = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (/[+%•@]|5g#|utr|transaction id|banking name|phonepe|xx\d|\d{1,2}:\d{2}|\b20\d{2}\b/i.test(line)) continue;
-    if (!/^₹?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?\s*$/.test(line)) continue;
-    const amount = Number(line.replace(/[₹,\s]/g, ''));
-    if (!Number.isFinite(amount) || amount <= 0 || amount > 100000000) continue;
-    candidates.push(amount);
+  for (const line of lines) {
+    if (/[+%•@]|5g#|utr|transaction id|banking name|phonepe|xx\\d|\\d{1,2}:\\d{2}|\\b20\\d{2}\\b/i.test(line)) continue;
+    if (!/^₹?\\s*\\d{1,3}(?:,\\d{2,3})*(?:\\.\\d{1,2})?\\s*$/.test(line)) continue;
+    const value = Number(line.replace(/[₹,\\s]/g, ''));
+    if (Number.isFinite(value) && value > 0 && value <= 100000000) candidates.push(value);
   }
   const unique = [...new Set(candidates)];
   const amount = unique.length === 1 ? unique[0] : null;
+  const parsedDate = paymentDateText ? Date.parse(paymentDateText) : NaN;
   return {
-    kind: type,
-    amount,
-    confidence: amount == null ? 'low' : 'review',
-    party,
+    kind, amount, confidence: amount == null ? 'low' : 'review',
+    party, paymentDateText, transactionAt: Number.isFinite(parsedDate) ? parsedDate : null,
+    utr, phonePeId, bank: (text.match(/(?:UPI|LPD)\\s+([A-Z ]+BANK)/i)?.[1] || '').trim(),
     raw: text
   };
 };
@@ -67,6 +68,7 @@ export default function App() {
   const [transactionNote, setTransactionNote] = useState('');
   const [editingAccountId, setEditingAccountId] = useState(null);
   const [editingAccountName, setEditingAccountName] = useState('');
+  const [editingOpeningBalance, setEditingOpeningBalance] = useState('0');
   const [editingTransactionId, setEditingTransactionId] = useState(null);
   const [editingTransactionType, setEditingTransactionType] = useState('add');
   const [editingTransactionAmount, setEditingTransactionAmount] = useState('');
@@ -153,7 +155,7 @@ export default function App() {
       } else if (result.status === 'shortcut_ready') {
         Alert.alert(
           'Volume shortcut ready',
-          'When media is not playing, press Volume Up twice within 1.2 seconds to capture one screenshot. A single press still changes volume after a short delay. When media is playing, volume keys work normally.'
+          'When media is not playing, press Volume Up twice within 1.2 seconds to capture one screenshot. Every press changes volume immediately; the double-press screenshot works during media playback too.'
         );
       }
     } catch (error) {
@@ -230,8 +232,25 @@ export default function App() {
 
   const saveAccountName = () => {
     const name = editingAccountName.trim();
+    const opening = Number(editingOpeningBalance);
     if (!name) { Alert.alert('Account name required', 'Enter an account name.'); return; }
-    setAccounts((items) => items.map((a) => a.id === editingAccountId ? { ...a, name } : a));
+    if (!Number.isFinite(opening) || opening < 0) { Alert.alert('Invalid opening balance', 'Enter zero or a positive amount.'); return; }
+    setAccounts((items) => items.map((account) => {
+      if (account.id !== editingAccountId) return account;
+      const entries = [...(account.transactions || [])];
+      const openingIndex = entries.findIndex((entry) => entry.type === 'opening');
+      if (openingIndex >= 0) {
+        if (opening === 0) entries.splice(openingIndex, 1);
+        else entries[openingIndex] = { ...entries[openingIndex], amount: Math.round(opening * 100) / 100, note: 'Opening balance' };
+      } else if (opening > 0) {
+        entries.push({
+          id: account.id + '-opening-' + Date.now(), type: 'opening',
+          amount: Math.round(opening * 100) / 100, note: 'Opening balance',
+          createdAt: Number(account.createdAt || Date.now()) - 1, balanceAfter: 0
+        });
+      }
+      return { ...recalculateAccount(account, entries), name };
+    }));
     setEditingAccountId(null);
   };
 
@@ -302,8 +321,10 @@ export default function App() {
       id: String(Date.now()) + '-ocr',
       type: pendingPayment.kind,
       amount: Math.round(amount * 100) / 100,
-      note: (pendingPayment.kind === 'add' ? 'Received from ' : 'Paid to ') + (pendingPayment.party || 'PhonePe transaction'),
-      createdAt: pendingPayment.capturedAt || Date.now(),
+      note: (pendingPayment.kind === 'add' ? 'Received from ' : 'Paid to ') +
+        (pendingPayment.party || 'PhonePe transaction') +
+        (pendingPayment.utr ? ' · UTR ' + pendingPayment.utr : ''),
+      createdAt: pendingPayment.transactionAt || pendingPayment.capturedAt || Date.now(),
       balanceAfter: 0,
       source: 'phonepe-ocr'
     };
@@ -345,7 +366,7 @@ export default function App() {
       <View style={styles.hero}>
         <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>VOLUME SHORTCUT</Text></View>
         <Text style={styles.heroTitle}>Capture without{ '\n' }an overlay.</Text>
-        <Text style={styles.heroDescription}>When no media is playing, press Volume Up twice within 1.2 seconds to capture one screenshot and read its text. If media is playing, volume keys work normally.</Text>
+        <Text style={styles.heroDescription}>Every press changes volume immediately. Press twice within 1.2 seconds to capture and open PA Helper for payment review.</Text>
         <TouchableOpacity activeOpacity={0.85} style={styles.primaryButton} onPress={enableAssistant} disabled={busy}>
           <Text style={styles.primaryButtonText}>{busy ? 'Opening permissions…' : 'Enable volume shortcut  →'}</Text>
         </TouchableOpacity>
@@ -365,6 +386,10 @@ export default function App() {
           />
           <Text style={styles.fieldLabel}>PARTY</Text>
           <Text style={styles.captureText}>{pendingPayment.party || 'Not identified from OCR'}</Text>
+          {pendingPayment.paymentDateText ? <Text style={styles.paymentMeta}>Payment time: {pendingPayment.paymentDateText}</Text> : null}
+          {pendingPayment.utr ? <Text style={styles.paymentMeta}>UTR: {pendingPayment.utr}</Text> : null}
+          {pendingPayment.phonePeId ? <Text style={styles.paymentMeta}>PhonePe ID: {pendingPayment.phonePeId}</Text> : null}
+          {pendingPayment.bank ? <Text style={styles.paymentMeta}>Bank: {pendingPayment.bank}</Text> : null}
           <Text style={styles.fieldLabel}>SELECT ACCOUNT</Text>
           {accounts.map((account) => (
             <TouchableOpacity key={account.id} onPress={() => setPaymentAccountId(account.id)} style={[styles.accountCard, paymentAccountId === account.id && styles.accountCardSelected]}>
@@ -474,7 +499,11 @@ export default function App() {
           </View>
           {selectedAccountId === account.id ? <Text style={styles.selectedLabel}>SELECTED ACCOUNT</Text> : null}
           <View style={styles.crudActions}>
-            <TouchableOpacity onPress={() => { setEditingAccountId(account.id); setEditingAccountName(account.name); }}><Text style={styles.crudLink}>Edit name</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => {
+              setEditingAccountId(account.id);
+              setEditingAccountName(account.name);
+              setEditingOpeningBalance(String((account.transactions || []).find((entry) => entry.type === 'opening')?.amount || 0));
+            }}><Text style={styles.crudLink}>Edit name</Text></TouchableOpacity>
             <TouchableOpacity onPress={() => deleteAccount(account)}><Text style={styles.crudDelete}>Delete account</Text></TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -483,7 +512,10 @@ export default function App() {
       {editingAccountId ? (
         <View style={styles.formCard}>
           <Text style={styles.cardTitle}>Edit account</Text>
+          <Text style={styles.fieldLabel}>ACCOUNT NAME</Text>
           <TextInput value={editingAccountName} onChangeText={setEditingAccountName} style={styles.input} maxLength={40} />
+          <Text style={styles.fieldLabel}>OPENING BALANCE (₹)</Text>
+          <TextInput value={editingOpeningBalance} onChangeText={setEditingOpeningBalance} keyboardType="decimal-pad" style={styles.input} />
           <View style={styles.transactionButtons}>
             <TouchableOpacity style={[styles.transactionButton, styles.addButton]} onPress={saveAccountName}><Text style={styles.transactionButtonText}>Save</Text></TouchableOpacity>
             <TouchableOpacity style={[styles.transactionButton, styles.minusButton]} onPress={() => setEditingAccountId(null)}><Text style={styles.transactionButtonText}>Cancel</Text></TouchableOpacity>
@@ -645,6 +677,7 @@ const styles = StyleSheet.create({
   accountMeta: { color: '#9AA3B2', fontSize: 10, marginTop: 4 },
   accountBalance: { color: '#243B70', fontSize: 14, fontWeight: '800' },
   selectedLabel: { color: '#496BA8', fontSize: 9, fontWeight: '800', letterSpacing: 1, marginTop: 10 },
+  paymentMeta: { color: '#7B8496', fontSize: 11, marginTop: 5 },
   crudActions: { flexDirection: 'row', gap: 18, marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#F0F2F6' },
   crudLink: { color: '#365A9A', fontSize: 11, fontWeight: '800', paddingVertical: 4 },
   crudDelete: { color: '#B54747', fontSize: 11, fontWeight: '800', paddingVertical: 4 },
