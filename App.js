@@ -37,17 +37,41 @@ const parsePaymentText = (raw) => {
   const phonePeId = text.match(/PhonePe\s+Transaction\s+ID[\s\S]{0,60}?\b(T\d{10,})\b/i)?.[1] || '';
 
   const candidates = [];
-  for (const line of lines) {
-    if (/[+%•@]|5g#|utr|transaction id|banking name|phonepe|xx\d|\d{1,2}:\d{2}|\b20\d{2}\b/i.test(line)) continue;
-    if (!/^₹?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?\s*$/.test(line)) continue;
-    const value = Number(line.replace(/[₹,\s]/g, ''));
-    if (Number.isFinite(value) && value > 0 && value <= 100000000) candidates.push(value);
+  const numericAmountPattern = /^(?:\\+\\s*)?(?:(?:\\d{1,3}(?:,\\d{2,3})+)|\\d+)(?:\\.\\d{1,2})?$/;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const originalLine = lines[index];
+    if (/%|@|•|5g#|utr|transaction id|banking name|phonepe|xx\\d|\\d{1,2}:\\d{2}|\\b20\\d{2}\\b/i.test(originalLine)) continue;
+
+    // OCR may put the currency marker on its own line, or append /- after the amount.
+    const previousLine = index > 0 ? lines[index - 1] : '';
+    const currencyOnPreviousLine = /^(?:₹|rs\\.?|inr)$/i.test(previousLine.trim());
+    const hasCurrencyMarker = /₹|\\brs\\.?\\b|\\binr\\b/i.test(originalLine) || currencyOnPreviousLine;
+    const normalized = originalLine
+      .replace(/₹|\\brs\\.?\\b|\\binr\\b/gi, '')
+      .replace(/\\s*(?:\\/\\-|\\-\\/)\\s*$/g, '')
+      .replace(/\\b(?:only|rupees?)\\b/gi, '')
+      .replace(/,/g, '')
+      .replace(/\\s+/g, '')
+      .trim();
+
+    if (!numericAmountPattern.test(normalized)) continue;
+    const value = Number(normalized.replace(/^\\+/, ''));
+    if (Number.isFinite(value) && value > 0 && value <= 100000000) {
+      candidates.push({ value, hasCurrencyMarker, source: originalLine });
+    }
   }
-  const unique = [...new Set(candidates)];
-  const amount = unique.length === 1 ? unique[0] : null;
+
+  // Prefer explicitly currency-marked values. Otherwise accept only one distinct
+  // numeric value; repeated OCR copies such as "7,900" and "7900" are deduplicated.
+  const currencyCandidates = candidates.filter((item) => item.hasCurrencyMarker);
+  const preferredCandidates = currencyCandidates.length ? currencyCandidates : candidates;
+  const uniqueAmounts = [...new Set(preferredCandidates.map((item) => item.value))];
+  const amount = uniqueAmounts.length === 1 ? uniqueAmounts[0] : null;
+  const amountCandidates = [...new Set(candidates.map((item) => item.value))];
   const parsedDate = paymentDateText ? Date.parse(paymentDateText.replace(/\s+on\s+/i, ' ')) : NaN;
   return {
-    kind, amount, confidence: amount == null ? 'low' : 'review',
+    kind, amount, amountCandidates, confidence: amount == null ? 'low' : (currencyCandidates.length ? 'currency_match_review' : 'review'),
     party, paymentDateText, transactionAt: Number.isFinite(parsedDate) ? parsedDate : null,
     utr, phonePeId, bank: (text.match(/(?:UPI|LPD)\s+([A-Z ]+BANK)/i)?.[1] || '').trim(),
     raw: text
