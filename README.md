@@ -1,6 +1,6 @@
 # PA Helper
 
-PA Helper is an Expo React Native Android app with a native Kotlin floating button and on-demand screen text recognition.
+PA Helper is an Expo React Native Android app with an Android accessibility shortcut for on-demand screen text recognition.
 
 ## Run the app
 
@@ -34,3 +34,12 @@ Only extracted text, status and capture time are retained locally. The screensho
 - The foreground notification is required to keep the floating button available while PA Helper is in the background.
 - Accessibility permission is powerful. PA Helper deliberately does not inspect accessibility events or read window contents; it requests a screenshot only after your tap.
 - This is an Android-only native feature. It is not available in Expo Go or on iOS.
+
+
+## Volume-button screenshot shortcut
+
+- Enable the PA Helper accessibility service in Android Accessibility settings.
+- When no media audio is playing, press **Volume Up three times within 1.2 seconds** to request exactly one screenshot and run on-device OCR.
+- If only one or two presses occur, PA Helper replays the normal volume increases after the 1.2-second shortcut window.
+- If media playback is active, volume keys pass through normally and never trigger the shortcut.
+- This shortcut uses Android accessibility key-event filtering. Secure/protected screens may still prevent screenshots, and Android/OEM restrictions can affect global key delivery.

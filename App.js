@@ -54,30 +54,25 @@ export default function App() {
 
   const enableAssistant = async () => {
     if (!PAHelperNative) {
-      Alert.alert('Android only', 'The floating assistant is available in the Android app.');
+      Alert.alert('Android only', 'The volume shortcut is available in the Android app.');
       return;
     }
     try {
       setBusy(true);
-      const result = await PAHelperNative.startFloatingAssistant();
-      if (result.status === 'overlay_permission_required') {
-        Alert.alert(
-          'Allow display over other apps',
-          'Enable “Display over other apps” for PA Helper, return here, and tap Enable floating assistant again.'
-        );
-      } else if (result.status === 'accessibility_permission_required') {
+      const result = await PAHelperNative.enableVolumeShortcut();
+      if (result.status === 'accessibility_permission_required') {
         Alert.alert(
           'Enable PA Helper accessibility',
-          'In Accessibility settings, open PA Helper screen capture and turn it on. This permission is used only to take a single screenshot when you tap the floating PA button. PA Helper does not continuously capture or inspect screen content.'
+          'In Accessibility settings, open PA Helper screen capture and turn it on. This enables the global Volume Up shortcut and one-shot screenshots; PA Helper does not continuously capture or inspect screen content.'
         );
-      } else if (result.status === 'overlay_started') {
+      } else if (result.status === 'shortcut_ready') {
         Alert.alert(
-          'Floating button ready',
-          'The PA button should now be visible on top of other apps. Tap it whenever you want one screen capture.'
+          'Volume shortcut ready',
+          'When media is not playing, press Volume Up three times within 1.2 seconds to capture. If you press once or twice, normal volume adjustment is replayed. When media is playing, all volume presses work normally.'
         );
       }
     } catch (error) {
-      Alert.alert('Could not start assistant', error.message || 'Check Android permissions and try again.');
+      Alert.alert('Could not enable shortcut', error.message || 'Check Accessibility settings and try again.');
     } finally {
       setBusy(false);
     }
@@ -118,17 +113,17 @@ export default function App() {
           <View>
             <Text style={styles.eyebrow}>PERSONAL ASSISTANT</Text>
             <Text style={styles.greeting}>Good day 👋</Text>
-            <Text style={styles.headerSubtitle}>Your screen context, one tap away.</Text>
+            <Text style={styles.headerSubtitle}>Capture screen text without a floating button.</Text>
           </View>
           <View style={styles.avatar}><Text style={styles.avatarText}>P</Text></View>
         </View>
 
         <View style={styles.hero}>
-          <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>TAP TO CAPTURE</Text></View>
-          <Text style={styles.heroTitle}>Your context.{ '\n' }Collected simply.</Text>
-          <Text style={styles.heroDescription}>Enable the floating PA button. Each tap takes one screenshot and reads its text. No continuous screen capture.</Text>
+          <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>VOLUME SHORTCUT</Text></View>
+          <Text style={styles.heroTitle}>Capture without{ '\n' }an overlay.</Text>
+          <Text style={styles.heroDescription}>When no media is playing, press Volume Up three times within 1.2 seconds to capture one screenshot and read its text. If media is playing, volume keys work normally.</Text>
           <TouchableOpacity activeOpacity={0.85} style={styles.primaryButton} onPress={enableAssistant} disabled={busy}>
-            <Text style={styles.primaryButtonText}>{busy ? 'Opening permissions…' : 'Enable floating assistant  →'}</Text>
+            <Text style={styles.primaryButtonText}>{busy ? 'Opening permissions…' : 'Enable volume shortcut  →'}</Text>
           </TouchableOpacity>
         </View>
 
@@ -145,13 +140,10 @@ export default function App() {
               </Text>
             </>
           ) : (
-            <Text style={styles.emptyText}>Your extracted text appears here after you tap PA. Screen capture is on-demand only.</Text>
+            <Text style={styles.emptyText}>Your extracted text appears here after the Volume Up triple-press shortcut. Capture is on-demand only.</Text>
           )}
           <TouchableOpacity style={styles.secondaryButton} onPress={refreshCapture}>
             <Text style={styles.secondaryButtonText}>Refresh captured text</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.stopButton} onPress={stopAssistant}>
-            <Text style={styles.stopButtonText}>Stop floating assistant</Text>
           </TouchableOpacity>
         </View>
 
@@ -167,7 +159,7 @@ export default function App() {
           <Text style={styles.tipIcon}>✦</Text>
           <View style={styles.tipCopy}>
             <Text style={styles.tipTitle}>Privacy by design</Text>
-            <Text style={styles.tipText}>PA Helper takes one screenshot only after you tap the floating button. OCR runs on-device. Secure screens may block screenshots.</Text>
+            <Text style={styles.tipText}>PA Helper captures only after the three-press shortcut. OCR runs on-device. Secure screens may still block screenshots.</Text>
           </View>
         </View>
         <Text style={styles.footer}>PA HELPER  •  MADE TO KEEP THINGS SIMPLE</Text>

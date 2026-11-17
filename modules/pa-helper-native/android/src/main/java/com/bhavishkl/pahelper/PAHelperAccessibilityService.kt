@@ -1,6 +1,11 @@
 package com.bhavishkl.pahelper
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.media.AudioManager
+import android.os.Handler
+import android.os.Looper
+import android.view.KeyEvent
 import android.accessibilityservice.AccessibilityService.ScreenshotResult
 import android.accessibilityservice.AccessibilityService.TakeScreenshotCallback
 import android.graphics.Bitmap
@@ -21,14 +26,78 @@ class PAHelperAccessibilityService : AccessibilityService() {
     @Volatile
     var instance: PAHelperAccessibilityService? = null
       private set
+
+    private const val VOLUME_SHORTCUT_WINDOW_MS = 1200L
+    private const val VOLUME_SHORTCUT_PRESS_COUNT = 3
   }
 
   @Volatile
   private var captureInProgress = false
 
+  private val keyHandler = Handler(Looper.getMainLooper())
+  private val audioManager by lazy { getSystemService(AUDIO_SERVICE) as AudioManager }
+  private val consumedVolumeDownTimes = mutableSetOf<Long>()
+  private var pendingVolumeUpPresses = 0
+  private var pendingVolumeRunnable: Runnable? = null
+
   override fun onServiceConnected() {
     super.onServiceConnected()
     instance = this
+    serviceInfo = serviceInfo.apply {
+      flags = flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
+    }
+  }
+
+  /**
+   * Volume Up x3 within 1.2 seconds captures one screenshot only when media
+   * playback is not active. Incomplete sequences are replayed as normal
+   * volume adjustments. During media playback, volume events pass through.
+   */
+  override fun onKeyEvent(event: KeyEvent): Boolean {
+    if (event.keyCode != KeyEvent.KEYCODE_VOLUME_UP) return false
+
+    if (event.action == KeyEvent.ACTION_UP) {
+      return consumedVolumeDownTimes.remove(event.downTime)
+    }
+    if (event.action != KeyEvent.ACTION_DOWN) return false
+
+    if (event.repeatCount > 0) {
+      return consumedVolumeDownTimes.contains(event.downTime)
+    }
+
+    if (audioManager.isMusicActive) {
+      flushPendingVolumeUpPresses()
+      return false
+    }
+
+    consumedVolumeDownTimes.add(event.downTime)
+    if (pendingVolumeUpPresses == 0) {
+      pendingVolumeRunnable = Runnable { flushPendingVolumeUpPresses() }
+      keyHandler.postDelayed(pendingVolumeRunnable!!, VOLUME_SHORTCUT_WINDOW_MS)
+    }
+
+    pendingVolumeUpPresses += 1
+    if (pendingVolumeUpPresses >= VOLUME_SHORTCUT_PRESS_COUNT) {
+      pendingVolumeRunnable?.let { keyHandler.removeCallbacks(it) }
+      pendingVolumeRunnable = null
+      pendingVolumeUpPresses = 0
+      captureOneScreenshot {}
+    }
+    return true
+  }
+
+  private fun flushPendingVolumeUpPresses() {
+    pendingVolumeRunnable?.let { keyHandler.removeCallbacks(it) }
+    pendingVolumeRunnable = null
+    val presses = pendingVolumeUpPresses
+    pendingVolumeUpPresses = 0
+    repeat(presses) {
+      audioManager.adjustSuggestedStreamVolume(
+        AudioManager.ADJUST_RAISE,
+        AudioManager.USE_DEFAULT_STREAM_TYPE,
+        AudioManager.FLAG_SHOW_UI
+      )
+    }
   }
 
   fun captureOneScreenshot(onComplete: () -> Unit) {
@@ -107,12 +176,14 @@ class PAHelperAccessibilityService : AccessibilityService() {
 
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     // Intentionally do not inspect or process accessibility events.
-    // A screenshot is requested only by an explicit tap on the floating PA button.
+    // A screenshot is requested only by the explicit Volume Up triple-press shortcut.
   }
 
   override fun onInterrupt() = Unit
 
   override fun onDestroy() {
+    flushPendingVolumeUpPresses()
+    keyHandler.removeCallbacksAndMessages(null)
     if (instance === this) instance = null
     super.onDestroy()
   }

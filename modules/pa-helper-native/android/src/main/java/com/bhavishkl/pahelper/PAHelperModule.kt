@@ -10,6 +10,31 @@ class PAHelperModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("PAHelperNative")
 
+    AsyncFunction("enableVolumeShortcut") {
+      val context = appContext.reactContext
+        ?: throw IllegalStateException("React context is not available")
+
+      val expected = ComponentName(context, PAHelperAccessibilityService::class.java)
+      val enabledServices = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+      ).orEmpty().split(':')
+
+      val accessibilityEnabled = enabledServices.any {
+        ComponentName.unflattenFromString(it) == expected
+      }
+
+      if (!accessibilityEnabled) {
+        context.startActivity(
+          Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+        return@AsyncFunction mapOf("status" to "accessibility_permission_required")
+      }
+
+      mapOf("status" to "shortcut_ready")
+    }
+
     AsyncFunction("startFloatingAssistant") {
       val context = appContext.reactContext
         ?: throw IllegalStateException("React context is not available")
