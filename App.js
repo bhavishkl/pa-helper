@@ -18,29 +18,29 @@ const formatMoney = (value) => '₹' + Number(value || 0).toLocaleString('en-IN'
 const parsePaymentText = (raw) => {
   const text = String(raw || '');
   const lower = text.toLowerCase();
-  const isReceived = /received\\s+from|credited\\s+to/.test(lower);
-  const isPaid = /paid\\s+to|sent\\s+to|debited\\s+from/.test(lower);
+  const isReceived = /received\s+from|credited\s+to/.test(lower);
+  const isPaid = /paid\s+to|sent\s+to|debited\s+from/.test(lower);
   if (isReceived === isPaid) return { kind: 'unknown', amount: null, confidence: 'low', raw: text };
 
   const kind = isReceived ? 'add' : 'minus';
-  const lines = text.split(/\\r?\\n/).map((line) => line.trim()).filter(Boolean);
-  const bankingName = text.match(/banking\\s+name\\s*:\\s*([^\\n]+)/i)?.[1]?.trim() || '';
-  const dateMatch = text.match(/(\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\s+on\\s+\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4})/i);
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const bankingName = text.match(/banking\s+name\s*:\s*([^\n]+)/i)?.[1]?.trim() || '';
+  const dateMatch = text.match(/(\d{1,2}:\d{2}\s*(?:AM|PM)\s+on\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4})/i);
   const paymentDateText = dateMatch?.[1] || '';
   const incomingParty = isReceived
-    ? (text.match(/received\\s+from[\\s\\S]*?\\d{1,2}:\\d{2}\\s*(?:AM|PM)\\s+on\\s+\\d{1,2}\\s+[A-Za-z]{3}\\s+\\d{4}\\s*\\n([^\\n]+)/i)?.[1] || '')
+    ? (text.match(/received\s+from[\s\S]*?\d{1,2}:\d{2}\s*(?:AM|PM)\s+on\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4}\s*\n([^\n]+)/i)?.[1] || '')
     : '';
   const party = (isReceived ? incomingParty : bankingName) ||
     bankingName ||
-    (isPaid ? (text.match(/(?:paid\\s+to|sent\\s+to)\\s*\\n([^\\n]+)/i)?.[1] || '') : '');
-  const utr = text.match(/\\bUTR\\s*:\\s*([A-Z0-9]+)/i)?.[1] || '';
-  const phonePeId = text.match(/PhonePe\\s+Transaction\\s+ID[\\s\\S]{0,60}?\\b(T\\d{10,})\\b/i)?.[1] || '';
+    (isPaid ? (text.match(/(?:paid\s+to|sent\s+to)\s*\n([^\n]+)/i)?.[1] || '') : '');
+  const utr = text.match(/\bUTR\s*:\s*([A-Z0-9]+)/i)?.[1] || '';
+  const phonePeId = text.match(/PhonePe\s+Transaction\s+ID[\s\S]{0,60}?\b(T\d{10,})\b/i)?.[1] || '';
 
   const candidates = [];
   for (const line of lines) {
-    if (/[+%•@]|5g#|utr|transaction id|banking name|phonepe|xx\\d|\\d{1,2}:\\d{2}|\\b20\\d{2}\\b/i.test(line)) continue;
-    if (!/^₹?\\s*\\d{1,3}(?:,\\d{2,3})*(?:\\.\\d{1,2})?\\s*$/.test(line)) continue;
-    const value = Number(line.replace(/[₹,\\s]/g, ''));
+    if (/[+%•@]|5g#|utr|transaction id|banking name|phonepe|xx\d|\d{1,2}:\d{2}|\b20\d{2}\b/i.test(line)) continue;
+    if (!/^₹?\s*\d{1,3}(?:,\d{2,3})*(?:\.\d{1,2})?\s*$/.test(line)) continue;
+    const value = Number(line.replace(/[₹,\s]/g, ''));
     if (Number.isFinite(value) && value > 0 && value <= 100000000) candidates.push(value);
   }
   const unique = [...new Set(candidates)];
@@ -49,7 +49,7 @@ const parsePaymentText = (raw) => {
   return {
     kind, amount, confidence: amount == null ? 'low' : 'review',
     party, paymentDateText, transactionAt: Number.isFinite(parsedDate) ? parsedDate : null,
-    utr, phonePeId, bank: (text.match(/(?:UPI|LPD)\\s+([A-Z ]+BANK)/i)?.[1] || '').trim(),
+    utr, phonePeId, bank: (text.match(/(?:UPI|LPD)\s+([A-Z ]+BANK)/i)?.[1] || '').trim(),
     raw: text
   };
 };

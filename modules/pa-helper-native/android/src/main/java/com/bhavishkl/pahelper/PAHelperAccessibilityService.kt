@@ -1,6 +1,7 @@
 package com.bhavishkl.pahelper
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.media.AudioManager
 import android.os.Handler
@@ -68,7 +69,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
       volumeShortcutRunnable?.let { keyHandler.removeCallbacks(it) }
       volumeShortcutRunnable = null
       volumeUpPresses = 0
-      captureOneScreenshot {}
+      captureOneScreenshot { openPAHelperHome() }
     }
     return false
   }
@@ -137,6 +138,20 @@ class PAHelperAccessibilityService : AccessibilityService() {
     saveCapture(text, status)
     captureInProgress = false
     onComplete()
+  }
+
+  private fun openPAHelperHome() {
+    try {
+      val launchIntent = packageManager.getLaunchIntentForPackage(packageName) ?: return
+      launchIntent.addFlags(
+        Intent.FLAG_ACTIVITY_NEW_TASK or
+          Intent.FLAG_ACTIVITY_CLEAR_TOP or
+          Intent.FLAG_ACTIVITY_SINGLE_TOP
+      )
+      startActivity(launchIntent)
+    } catch (_: Exception) {
+      // Capture is saved already; a launch failure must not affect volume handling.
+    }
   }
 
   private fun saveCapture(text: String, status: String) {
