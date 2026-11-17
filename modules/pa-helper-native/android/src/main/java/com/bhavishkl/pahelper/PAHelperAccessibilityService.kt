@@ -10,6 +10,8 @@ import android.view.KeyEvent
 import android.accessibilityservice.AccessibilityService.ScreenshotResult
 import android.accessibilityservice.AccessibilityService.TakeScreenshotCallback
 import android.graphics.Bitmap
+import android.graphics.Rect
+import android.view.accessibility.AccessibilityNodeInfo
 import android.hardware.HardwareBuffer
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
@@ -24,6 +26,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
     const val KEY_TEXT = "latest_text"
     const val KEY_TIME = "latest_time"
     const val KEY_STATUS = "latest_status"
+    const val KEY_METHOD = "latest_method"
 
     @Volatile
     var instance: PAHelperAccessibilityService? = null
@@ -70,14 +73,89 @@ class PAHelperAccessibilityService : AccessibilityService() {
       volumeShortcutRunnable?.let { keyHandler.removeCallbacks(it) }
       volumeShortcutRunnable = null
       volumeUpPresses = 0
-      captureOneScreenshot { openPAHelperHome() }
+      val accessibilityText = captureAccessibilityText()
+      if (isUsefulAccessibilityText(accessibilityText)) {
+        saveCapture(accessibilityText, "success", "Accessibility")
+        openPAHelperHome()
+      } else {
+        captureOneScreenshot { openPAHelperHome() }
+      }
     }
     return false
   }
 
+
+  private fun captureAccessibilityText(): String {
+    val root = try { rootInActiveWindow } catch (_: Exception) { null } ?: return ""
+
+    data class PositionedText(val text: String, val left: Int, val top: Int, val bottom: Int, val centerY: Double)
+    val items = mutableListOf<PositionedText>()
+
+    fun visit(node: AccessibilityNodeInfo?, depth: Int) {
+      if (node == null || depth > 30 || items.size > 1200) return
+      try {
+        val nodeText = node.text?.toString()?.trim().orEmpty()
+        val description = node.contentDescription?.toString()?.trim().orEmpty()
+        val value = if (nodeText.isNotEmpty()) nodeText else description
+        val hasTextChild = (0 until node.childCount).any { index ->
+          try {
+            val child = node.getChild(index)
+            val hasText = child != null && (!child.text.isNullOrBlank() || !child.contentDescription.isNullOrBlank())
+            child?.recycle()
+            hasText
+          } catch (_: Exception) { false }
+        }
+        if (value.isNotEmpty() && !hasTextChild) {
+          val bounds = Rect()
+          node.getBoundsInScreen(bounds)
+          items.add(PositionedText(value.replace(Regex("\\s+"), " "), bounds.left, bounds.top, bounds.bottom, (bounds.top + bounds.bottom) / 2.0))
+        }
+        for (index in 0 until node.childCount) {
+          val child = try { node.getChild(index) } catch (_: Exception) { null }
+          if (child != null) {
+            visit(child, depth + 1)
+            child.recycle()
+          }
+        }
+      } catch (_: Exception) {
+        // Ignore stale or inaccessible nodes.
+      }
+    }
+
+    try { visit(root, 0) } finally { root.recycle() }
+    if (items.isEmpty()) return ""
+
+    data class Row(val elements: MutableList<PositionedText>, var top: Int, var bottom: Int) {
+      val centerY: Double get() = (top + bottom) / 2.0
+    }
+    val rows = mutableListOf<Row>()
+    for (item in items.sortedBy { it.centerY }) {
+      val row = rows.filter { existing ->
+        val overlap = minOf(existing.bottom, item.bottom) - maxOf(existing.top, item.top)
+        val minHeight = minOf(existing.bottom - existing.top, item.bottom - item.top).coerceAtLeast(1)
+        overlap.toDouble() / minHeight >= 0.30 || kotlin.math.abs(existing.centerY - item.centerY) <= minHeight * 0.45
+      }.minByOrNull { kotlin.math.abs(it.centerY - item.centerY) }
+      if (row == null) rows.add(Row(mutableListOf(item), item.top, item.bottom))
+      else {
+        row.elements.add(item)
+        row.top = minOf(row.top, item.top)
+        row.bottom = maxOf(row.bottom, item.bottom)
+      }
+    }
+    return rows.sortedBy { it.centerY }.joinToString("\n") { row ->
+      row.elements.sortedBy { it.left }.joinToString("  ") { it.text }
+    }.trim()
+  }
+
+  private fun isUsefulAccessibilityText(text: String): Boolean {
+    if (text.length < 24) return false
+    val paymentContext = Regex("transaction successful|received from|paid to|sent to|debited from|credited to|utr|phonepe", RegexOption.IGNORE_CASE).containsMatchIn(text)
+    return paymentContext || text.lines().count { it.isNotBlank() } >= 4
+  }
+
   fun captureOneScreenshot(onComplete: () -> Unit) {
     if (captureInProgress) {
-      saveCapture("", "capture_in_progress")
+      saveCapture("", "capture_in_progress", "OCR")
       onComplete()
       return
     }
@@ -102,7 +180,7 @@ class PAHelperAccessibilityService : AccessibilityService() {
           }
 
           if (bitmap == null) {
-            finishCapture("", "image_processing_failed", onComplete)
+            finishCapture("", "image_processing_failed", onComplete, "OCR")
             return
           }
 
@@ -114,24 +192,25 @@ class PAHelperAccessibilityService : AccessibilityService() {
               finishCapture(
                 text,
                 if (text.isBlank()) "no_text_found" else "success",
-                onComplete
+                onComplete,
+                "OCR"
               )
               recognizer.close()
               capturedBitmap.recycle()
             }
             .addOnFailureListener {
-              finishCapture("", "ocr_failed", onComplete)
+              finishCapture("", "ocr_failed", onComplete, "OCR")
               recognizer.close()
               capturedBitmap.recycle()
             }
         }
 
         override fun onFailure(errorCode: Int) {
-          finishCapture("", "screenshot_failed_$errorCode", onComplete)
+          finishCapture("", "screenshot_failed_$errorCode", onComplete, "OCR")
         }
       })
     } catch (_: Exception) {
-      finishCapture("", "screenshot_request_failed", onComplete)
+      finishCapture("", "screenshot_request_failed", onComplete, "OCR")
     }
   }
 
@@ -204,8 +283,8 @@ class PAHelperAccessibilityService : AccessibilityService() {
       .trim()
   }
 
-  private fun finishCapture(text: String, status: String, onComplete: () -> Unit) {
-    saveCapture(text, status)
+  private fun finishCapture(text: String, status: String, onComplete: () -> Unit, method: String) {
+    saveCapture(text, status, method)
     captureInProgress = false
     onComplete()
   }
@@ -224,11 +303,12 @@ class PAHelperAccessibilityService : AccessibilityService() {
     }
   }
 
-  private fun saveCapture(text: String, status: String) {
+  private fun saveCapture(text: String, status: String, method: String) {
     getSharedPreferences(PREFS, MODE_PRIVATE).edit()
       .putString(KEY_TEXT, text)
       .putLong(KEY_TIME, System.currentTimeMillis())
       .putString(KEY_STATUS, status)
+      .putString(KEY_METHOD, method)
       .apply()
   }
 

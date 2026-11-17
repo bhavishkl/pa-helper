@@ -80,7 +80,7 @@ const parsePaymentText = (raw) => {
 
 export default function App() {
   const [tab, setTab] = useState('home');
-  const [capture, setCapture] = useState({ text: '', capturedAt: 0, status: 'empty' });
+  const [capture, setCapture] = useState({ text: '', capturedAt: 0, status: 'empty', method: '—' });
   const [busy, setBusy] = useState(false);
 
   const [accounts, setAccounts] = useState([]);
@@ -437,6 +437,7 @@ export default function App() {
         {capture.text ? (
           <>
             <Text style={styles.captureText}>{capture.text}</Text>
+            <Text style={styles.captureMeta}>Extraction method: {capture.method || 'OCR'}</Text>
             <Text style={styles.captureMeta}>Captured {capture.capturedAt ? new Date(capture.capturedAt).toLocaleString() : ''}</Text>
           </>
         ) : (
@@ -451,7 +452,7 @@ export default function App() {
         <Text style={styles.tipIcon}>✦</Text>
         <View style={styles.tipCopy}>
           <Text style={styles.tipTitle}>Privacy by design</Text>
-          <Text style={styles.tipText}>PA Helper captures only after the two-press shortcut. OCR runs on-device. Secure screens may still block screenshots.</Text>
+          <Text style={styles.tipText}>PA Helper reads exposed accessibility text first, then falls back to on-device OCR when the screen does not expose enough text. Extraction runs only after the two-press shortcut.</Text>
         </View>
       </View>
       <Text style={styles.footer}>PA HELPER  •  MADE TO KEEP THINGS SIMPLE</Text>

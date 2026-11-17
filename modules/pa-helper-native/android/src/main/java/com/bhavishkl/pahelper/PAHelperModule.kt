@@ -99,7 +99,8 @@ class PAHelperModule : Module() {
       mapOf(
         "text" to (prefs.getString(PAHelperAccessibilityService.KEY_TEXT, "") ?: ""),
         "capturedAt" to prefs.getLong(PAHelperAccessibilityService.KEY_TIME, 0L),
-        "status" to (prefs.getString(PAHelperAccessibilityService.KEY_STATUS, "empty") ?: "empty")
+        "status" to (prefs.getString(PAHelperAccessibilityService.KEY_STATUS, "empty") ?: "empty"),
+        "method" to (prefs.getString(PAHelperAccessibilityService.KEY_METHOD, "OCR") ?: "OCR")
       )
     }
 
