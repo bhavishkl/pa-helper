@@ -45,7 +45,7 @@ const parsePaymentText = (raw) => {
   }
   const unique = [...new Set(candidates)];
   const amount = unique.length === 1 ? unique[0] : null;
-  const parsedDate = paymentDateText ? Date.parse(paymentDateText) : NaN;
+  const parsedDate = paymentDateText ? Date.parse(paymentDateText.replace(/\s+on\s+/i, ' ')) : NaN;
   return {
     kind, amount, confidence: amount == null ? 'low' : 'review',
     party, paymentDateText, transactionAt: Number.isFinite(parsedDate) ? parsedDate : null,
@@ -155,7 +155,7 @@ export default function App() {
       } else if (result.status === 'shortcut_ready') {
         Alert.alert(
           'Volume shortcut ready',
-          'When media is not playing, press Volume Up twice within 1.2 seconds to capture one screenshot. Every press changes volume immediately; the double-press screenshot works during media playback too.'
+          'Every Volume Up press changes volume immediately. A second press within 1.2 seconds also captures a screenshot and opens PA Helper for payment review, even during media playback.'
         );
       }
     } catch (error) {
