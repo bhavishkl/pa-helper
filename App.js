@@ -337,7 +337,7 @@ export default function App() {
       {selectedAccount && (selectedAccount.transactions || []).length > 0 ? (
         <View style={styles.historyCard}>
           <Text style={styles.cardTitle}>Recent entries · {selectedAccount.name}</Text>
-          {selectedAccount.transactions.slice(0, 20).map((entry) => (
+          {selectedAccount.transactions.map((entry) => (
             <View key={entry.id} style={styles.historyRow}>
               <View style={styles.historyCopy}>
                 <Text style={styles.historyTitle}>{entry.note || (entry.type === 'opening' ? 'Opening balance' : entry.type === 'add' ? 'Added' : 'Deducted')}</Text>

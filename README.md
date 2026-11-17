@@ -58,3 +58,10 @@ Only extracted text, status and capture time are retained locally. The screensho
 - Select an account and record an amount using **Add amount** or **Minus amount**.
 - Each entry records its amount, optional note, timestamp and resulting balance.
 - Account data is stored locally in the app's private Android SharedPreferences. It is not synced to a server. Clearing app data or uninstalling the app removes the local records.
+
+
+## Volume shortcut and account ledger
+
+Every Volume Up press is passed through to Android immediately, so volume changes are not delayed or suppressed. A second press within 1.2 seconds independently triggers a one-shot screenshot, regardless of media playback.
+
+The Accounts screen supports creating, viewing, renaming and deleting accounts, plus adding, viewing, editing and deleting ledger transactions. Account balances are recalculated from the transaction history after edits or deletions. Data is stored locally on the device.
