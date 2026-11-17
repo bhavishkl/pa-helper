@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="pa_helper_accessibility_label">PA Helper screen capture</string>
+  <string name="pa_helper_accessibility_description">Allows PA Helper to take a single screenshot only when you tap its floating button. It does not continuously capture or inspect your screen.</string>
+</resources>

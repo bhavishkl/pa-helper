@@ -3,14 +3,12 @@ const { withAndroidManifest, withSettingsGradle } = require('@expo/config-plugin
 const permissions = [
   'android.permission.SYSTEM_ALERT_WINDOW',
   'android.permission.FOREGROUND_SERVICE',
-  'android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION',
+  'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
   'android.permission.POST_NOTIFICATIONS'
 ];
 
 module.exports = function withPAHelperAndroid(config) {
   config = withSettingsGradle(config, (config) => {
-    // Keep the Android settings aligned with the Expo SDK 54 template.
-    // Expo's settings plugin is required to discover and link local Expo modules.
     config.modResults.contents = `pluginManagement {
   def reactNativeGradlePlugin = new File(
     providers.exec {
@@ -65,27 +63,45 @@ includeBuild(expoAutolinking.reactNativeGradlePlugin)
 
     const application = manifest.application[0];
     application.service = application.service || [];
-    if (!application.service.some((item) => item.$['android:name'] === '.PAHelperCaptureService')) {
-      application.service.push({
+
+    const overlayService = {
+      $: {
+        'android:name': '.PAHelperOverlayService',
+        'android:exported': 'false',
+        'android:foregroundServiceType': 'specialUse'
+      },
+      property: [{
         $: {
-          'android:name': '.PAHelperCaptureService',
-          'android:exported': 'false',
-          'android:foregroundServiceType': 'mediaProjection'
+          'android:name': 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE',
+          'android:value': 'User-started floating shortcut that captures a screenshot only when tapped'
         }
-      });
+      }]
+    };
+    if (!application.service.some((item) => item.$['android:name'] === '.PAHelperOverlayService')) {
+      application.service.push(overlayService);
     }
 
-    application.activity = application.activity || [];
-    if (!application.activity.some((item) => item.$['android:name'] === '.PAHelperCapturePermissionActivity')) {
-      application.activity.push({
+    const accessibilityService = {
+      $: {
+        'android:name': '.PAHelperAccessibilityService',
+        'android:label': '@string/pa_helper_accessibility_label',
+        'android:permission': 'android.permission.BIND_ACCESSIBILITY_SERVICE',
+        'android:exported': 'true'
+      },
+      'intent-filter': [{
+        action: [{ $: { 'android:name': 'android.accessibilityservice.AccessibilityService' } }]
+      }],
+      'meta-data': [{
         $: {
-          'android:name': '.PAHelperCapturePermissionActivity',
-          'android:exported': 'false',
-          'android:excludeFromRecents': 'true',
-          'android:theme': '@android:style/Theme.Translucent.NoTitleBar'
+          'android:name': 'android.accessibilityservice',
+          'android:resource': '@xml/pa_helper_accessibility_service'
         }
-      });
+      }]
+    };
+    if (!application.service.some((item) => item.$['android:name'] === '.PAHelperAccessibilityService')) {
+      application.service.push(accessibilityService);
     }
+
     return config;
   });
 };

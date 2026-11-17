@@ -65,10 +65,15 @@ export default function App() {
           'Allow display over other apps',
           'Enable “Display over other apps” for PA Helper, return here, and tap Enable floating assistant again.'
         );
-      } else {
+      } else if (result.status === 'accessibility_permission_required') {
         Alert.alert(
-          'Screen capture permission',
-          'Approve Android’s screen-capture prompt. After it starts, switch to another app and tap the floating PA button.'
+          'Enable PA Helper accessibility',
+          'In Accessibility settings, open PA Helper screen capture and turn it on. This permission is used only to take a single screenshot when you tap the floating PA button. PA Helper does not continuously capture or inspect screen content.'
+        );
+      } else if (result.status === 'overlay_started') {
+        Alert.alert(
+          'Floating button ready',
+          'The PA button should now be visible on top of other apps. Tap it whenever you want one screen capture.'
         );
       }
     } catch (error) {
@@ -118,7 +123,7 @@ export default function App() {
         <View style={styles.hero}>
           <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>TAP TO CAPTURE</Text></View>
           <Text style={styles.heroTitle}>Your context.{ '\n' }Collected simply.</Text>
-          <Text style={styles.heroDescription}>Enable the floating PA button, tap it on any screen, and bring recognized text back here.</Text>
+          <Text style={styles.heroDescription}>Enable the floating PA button. Each tap takes one screenshot and reads its text. No continuous screen capture.</Text>
           <TouchableOpacity activeOpacity={0.85} style={styles.primaryButton} onPress={enableAssistant} disabled={busy}>
             <Text style={styles.primaryButtonText}>{busy ? 'Opening permissions…' : 'Enable floating assistant  →'}</Text>
           </TouchableOpacity>
@@ -137,7 +142,7 @@ export default function App() {
               </Text>
             </>
           ) : (
-            <Text style={styles.emptyText}>Your extracted screen text will appear here after you tap the floating PA button.</Text>
+            <Text style={styles.emptyText}>Your extracted text appears here after you tap PA. Screen capture is on-demand only.</Text>
           )}
           <TouchableOpacity style={styles.secondaryButton} onPress={refreshCapture}>
             <Text style={styles.secondaryButtonText}>Refresh captured text</Text>
@@ -159,7 +164,7 @@ export default function App() {
           <Text style={styles.tipIcon}>✦</Text>
           <View style={styles.tipCopy}>
             <Text style={styles.tipTitle}>Privacy by design</Text>
-            <Text style={styles.tipText}>Screen text is recognized on-device. Review extracted payment details before saving them. Secure screens may block capture.</Text>
+            <Text style={styles.tipText}>PA Helper takes one screenshot only after you tap the floating button. OCR runs on-device. Secure screens may block screenshots.</Text>
           </View>
         </View>
         <Text style={styles.footer}>PA HELPER  •  MADE TO KEEP THINGS SIMPLE</Text>
