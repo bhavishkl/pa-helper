@@ -95,14 +95,17 @@ export default function App() {
   const statusLabel = {
     success: 'Text captured',
     no_text_found: 'No readable text found',
-    capture_not_ready: 'Capture permission not ready',
-    capture_error: 'Capture failed',
     ocr_failed: 'Text recognition failed',
-    overlay_permission_missing: 'Overlay permission missing',
     overlay_failed: 'Could not display floating button',
-    no_frame_received: 'No screen frame received',
+    accessibility_service_unavailable: 'Enable PA Helper accessibility',
+    screenshot_request_failed: 'Could not request screenshot',
+    screenshot_failed_1: 'Wait a moment before capturing again',
+    screenshot_failed_2: 'Screenshot failed internally',
+    screenshot_failed_3: 'Display unavailable',
+    screenshot_failed_4: 'Window unavailable',
+    screenshot_failed_5: 'Accessibility screenshot access unavailable',
+    screenshot_failed_6: 'This screen blocks screenshots',
     capture_in_progress: 'Capture already in progress',
-    display_unavailable: 'Display unavailable',
     image_processing_failed: 'Image processing failed',
     empty: 'Nothing captured yet'
   }[capture.status] || capture.status;
