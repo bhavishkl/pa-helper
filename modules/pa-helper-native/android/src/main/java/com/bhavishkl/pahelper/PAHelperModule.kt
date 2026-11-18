@@ -2,7 +2,9 @@ package com.bhavishkl.pahelper
 
 import android.content.ComponentName
 import android.content.Intent
-import android.provider.Settings\nimport android.Manifest\nimport android.content.pm.PackageManager\nimport android.os.Build
+import android.provider.Settings
+import android.Manifest
+import android.content.pm.PackageManager
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
