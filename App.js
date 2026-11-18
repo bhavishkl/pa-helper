@@ -130,6 +130,7 @@ export default function App() {
   const [otpListenerGranted, setOtpListenerGranted] = useState(false);
   const [otpSmsGranted, setOtpSmsGranted] = useState(false);
   const [otpBusy, setOtpBusy] = useState(false);
+  const [otpDiagnostics, setOtpDiagnostics] = useState(null);
 
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === selectedAccountId) || null,
@@ -175,6 +176,12 @@ export default function App() {
     return () => subscription.remove();
   }, [refreshCapture]);
 
+  const refreshOtpDiagnostics = useCallback(async () => {
+    if (!PAHelperNative) return;
+    try { setOtpDiagnostics(await PAHelperNative.getOtpDiagnostics()); }
+    catch (error) { console.warn('OTP diagnostics unavailable', error); }
+  }, []);
+
   const refreshOtpStatus = useCallback(async () => {
     if (!PAHelperNative) return;
     try {
@@ -184,10 +191,11 @@ export default function App() {
       setOtpDestination(settings.destination || '+918431000179');
       setOtpListenerGranted(!!status.notificationAccess);
       setOtpSmsGranted(!!status.smsPermission);
+      await refreshOtpDiagnostics();
     } catch (error) {
       console.warn('OTP status unavailable', error);
     }
-  }, []);
+  }, [refreshOtpDiagnostics]);
 
   useEffect(() => { refreshOtpStatus(); }, [refreshOtpStatus]);
 
@@ -529,6 +537,18 @@ export default function App() {
         </TouchableOpacity>
         <Text style={styles.paymentMeta}>Notification access: {otpListenerGranted ? 'Granted' : 'Not granted'} · SMS permission: {otpSmsGranted ? 'Granted' : 'Not granted'}</Text>
         <Text style={styles.paymentMeta}>Status: {otpEnabled && otpListenerGranted && otpSmsGranted ? 'Active' : otpEnabled ? 'Waiting for permissions' : 'Off'}</Text>
+        <View style={styles.otpDebugBox}>
+          <Text style={styles.otpDebugTitle}>DIAGNOSTICS</Text>
+          <Text style={styles.paymentMeta}>Listener: {otpDiagnostics?.listenerConnected ? 'Connected' : 'Not connected / unknown'}</Text>
+          <Text style={styles.paymentMeta}>Last event: {otpDiagnostics?.lastEvent || 'No event recorded'}</Text>
+          <Text style={styles.paymentMeta}>Details: {otpDiagnostics?.lastDetail || 'Waiting for an SMS notification'}</Text>
+          <Text style={styles.paymentMeta}>Source: {otpDiagnostics?.lastSource || '—'}</Text>
+          <Text style={styles.paymentMeta}>Time: {otpDiagnostics?.lastEventAt ? new Date(otpDiagnostics.lastEventAt).toLocaleString() : '—'}</Text>
+          <Text style={styles.paymentMeta}>Forward attempts: {otpDiagnostics?.forwardAttempts ?? 0} · Android accepted: {otpDiagnostics?.forwardAccepted ?? 0} · Errors: {otpDiagnostics?.forwardErrors ?? 0}</Text>
+          <TouchableOpacity style={styles.secondaryButton} onPress={refreshOtpDiagnostics}>
+            <Text style={styles.secondaryButtonText}>Refresh diagnostics</Text>
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity activeOpacity={0.85} style={styles.primaryWideButton}
           onPress={() => configureOtpForwarding(!otpEnabled)} disabled={otpBusy}>
           <Text style={styles.primaryWideButtonText}>{otpBusy ? 'Updating…' : otpEnabled ? 'Pause OTP forwarding' : 'Enable OTP auto-forwarding'}</Text>
@@ -872,6 +892,8 @@ const styles = StyleSheet.create({
   emptyText: { color: '#8B93A2', fontSize: 12, lineHeight: 19 },
   secondaryButton: { backgroundColor: '#EEF3FC', padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 14 },
   secondaryButtonText: { color: '#243B70', fontSize: 12, fontWeight: '800' },
+  otpDebugBox: { backgroundColor: '#F7F8FC', borderRadius: 12, padding: 12, marginTop: 14 },
+  otpDebugTitle: { color: '#365A9A', fontSize: 10, fontWeight: '900', letterSpacing: 1.2, marginBottom: 4 },
   tipCard: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#EEF3FC', borderRadius: 18, padding: 17, marginTop: 8 },
   tipIcon: { color: '#365A9A', fontSize: 21, marginRight: 12 },
   tipCopy: { flex: 1 },

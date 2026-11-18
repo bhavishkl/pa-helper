@@ -38,6 +38,23 @@ class PAHelperModule : Module() {
       mapOf("status" to "saved", "enabled" to enabled)
     }
 
+    AsyncFunction("getOtpDiagnostics") {
+      val context = appContext.reactContext ?: throw IllegalStateException("React context is not available")
+      val prefs = context.getSharedPreferences(PAHelperOtpNotificationListener.PREFS, 0)
+      mapOf(
+        "listenerConnected" to (prefs.getString("last_event", "") == "listener_connected" ||
+          prefs.getBoolean("listener_connected", false)),
+        "lastEvent" to (prefs.getString("last_event", "") ?: ""),
+        "lastDetail" to (prefs.getString("last_detail", "") ?: ""),
+        "lastSource" to (prefs.getString("last_source", "") ?: ""),
+        "lastEventAt" to prefs.getLong("last_event_at", 0L),
+        "notificationsSeen" to prefs.getInt("sms_notifications_seen", 0),
+        "forwardAttempts" to prefs.getInt("forward_attempts", 0),
+        "forwardAccepted" to prefs.getInt("forward_accepted", 0),
+        "forwardErrors" to prefs.getInt("forward_errors", 0)
+      )
+    }
+
     AsyncFunction("getOtpListenerStatus") {
       val context = appContext.reactContext ?: throw IllegalStateException("React context is not available")
       val component = ComponentName(context, PAHelperOtpNotificationListener::class.java)
