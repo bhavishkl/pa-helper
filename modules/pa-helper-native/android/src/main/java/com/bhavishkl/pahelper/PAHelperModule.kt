@@ -2,13 +2,50 @@ package com.bhavishkl.pahelper
 
 import android.content.ComponentName
 import android.content.Intent
-import android.provider.Settings
+import android.provider.Settings\nimport android.Manifest\nimport android.content.pm.PackageManager\nimport android.os.Build
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 class PAHelperModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("PAHelperNative")
+
+
+    AsyncFunction("getOtpForwardingSettings") {
+      val context = appContext.reactContext ?: throw IllegalStateException("React context is not available")
+      val prefs = context.getSharedPreferences(PAHelperOtpNotificationListener.PREFS, 0)
+      mapOf(
+        "enabled" to prefs.getBoolean("enabled", false),
+        "destination" to (prefs.getString("destination", "+91843100179") ?: "+91843100179")
+      )
+    }
+
+    AsyncFunction("saveOtpForwardingSettings") { enabled: Boolean, destination: String ->
+      val context = appContext.reactContext ?: throw IllegalStateException("React context is not available")
+      context.getSharedPreferences(PAHelperOtpNotificationListener.PREFS, 0).edit()
+        .putBoolean("enabled", enabled)
+        .putString("destination", destination)
+        .apply()
+      mapOf("status" to "saved", "enabled" to enabled)
+    }
+
+    AsyncFunction("getOtpListenerStatus") {
+      val context = appContext.reactContext ?: throw IllegalStateException("React context is not available")
+      val component = ComponentName(context, PAHelperOtpNotificationListener::class.java)
+      val enabledListeners = Settings.Secure.getString(
+        context.contentResolver, "enabled_notification_listeners"
+      ).orEmpty().split(':')
+      mapOf(
+        "notificationAccess" to enabledListeners.any { ComponentName.unflattenFromString(it) == component },
+        "smsPermission" to (context.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED)
+      )
+    }
+
+    AsyncFunction("openOtpNotificationSettings") {
+      val context = appContext.reactContext ?: throw IllegalStateException("React context is not available")
+      context.startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      mapOf("status" to "settings_opened")
+    }
 
     AsyncFunction("getAccounts") {
       val context = appContext.reactContext

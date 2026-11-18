@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
   <string name="pa_helper_accessibility_label">PA Helper screen capture</string>
-  <string name="pa_helper_accessibility_description">Allows PA Helper to take a single screenshot only when you tap its floating button. It does not continuously capture or inspect your screen.</string>
+  <string name="pa_helper_accessibility_description">Allows PA Helper to take a single screenshot only when you use the Volume Up double-press shortcut. It does not continuously capture or inspect your screen.</string>
+  <string name="pa_helper_otp_listener_label">PA Helper OTP notification listener</string>
+  <string name="pa_helper_otp_listener_description">Reads notifications posted by supported SMS apps to detect OTP messages and forward codes according to your PA Helper settings.</string>
 </resources>

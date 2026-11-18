@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AppState, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text,
-  TextInput, TouchableOpacity, View, Alert, Platform
+  TextInput, TouchableOpacity, View, Alert, Platform, PermissionsAndroid
 } from 'react-native';
 import { requireNativeModule } from 'expo-modules-core';
 
@@ -125,6 +125,11 @@ export default function App() {
   const [pendingPayment, setPendingPayment] = useState(null);
   const [paymentAccountId, setPaymentAccountId] = useState('');
   const [lastReviewedCaptureAt, setLastReviewedCaptureAt] = useState(0);
+  const [otpEnabled, setOtpEnabled] = useState(false);
+  const [otpDestination, setOtpDestination] = useState('+91843100179');
+  const [otpListenerGranted, setOtpListenerGranted] = useState(false);
+  const [otpSmsGranted, setOtpSmsGranted] = useState(false);
+  const [otpBusy, setOtpBusy] = useState(false);
 
   const selectedAccount = useMemo(
     () => accounts.find((account) => account.id === selectedAccountId) || null,
@@ -433,6 +438,23 @@ export default function App() {
           <Text style={styles.headerSubtitle}>Capture screen text without a floating button.</Text>
         </View>
         <View style={styles.avatar}><Text style={styles.avatarText}>P</Text></View>
+      </View>
+
+      <View style={styles.formCard}>
+        <Text style={styles.cardTitle}>OTP auto-forwarding</Text>
+        <Text style={styles.emptyText}>Reads OTP notifications from supported SMS apps only. Codes are processed on this device and sent by SMS to your configured number. No cloud service is used.</Text>
+        <Text style={styles.fieldLabel}>FORWARD TO</Text>
+        <TextInput value={otpDestination} onChangeText={setOtpDestination} keyboardType="phone-pad"
+          placeholder="+91..." style={styles.input} editable={!otpEnabled} />
+        <Text style={styles.paymentMeta}>Notification access: {otpListenerGranted ? 'Granted' : 'Not granted'} · SMS permission: {otpSmsGranted ? 'Granted' : 'Not granted'}</Text>
+        <Text style={styles.paymentMeta}>Status: {otpEnabled && otpListenerGranted && otpSmsGranted ? 'Active' : otpEnabled ? 'Waiting for permissions' : 'Off'}</Text>
+        <TouchableOpacity activeOpacity={0.85} style={styles.primaryWideButton}
+          onPress={() => configureOtpForwarding(!otpEnabled)} disabled={otpBusy}>
+          <Text style={styles.primaryWideButtonText}>{otpBusy ? 'Updating…' : otpEnabled ? 'Pause OTP forwarding' : 'Enable OTP auto-forwarding'}</Text>
+        </TouchableOpacity>
+        {otpEnabled && !otpListenerGranted ? <TouchableOpacity style={styles.secondaryButton} onPress={() => PAHelperNative?.openOtpNotificationSettings()}>
+          <Text style={styles.secondaryButtonText}>Open notification access settings</Text>
+        </TouchableOpacity> : null}
       </View>
 
       <View style={styles.hero}>

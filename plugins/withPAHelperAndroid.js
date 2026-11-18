@@ -4,7 +4,7 @@ const permissions = [
   'android.permission.SYSTEM_ALERT_WINDOW',
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
-  'android.permission.POST_NOTIFICATIONS'
+  'android.permission.POST_NOTIFICATIONS',\n  'android.permission.SEND_SMS'
 ];
 
 module.exports = function withPAHelperAndroid(config) {
