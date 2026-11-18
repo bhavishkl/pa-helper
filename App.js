@@ -223,7 +223,7 @@ export default function App() {
     setOtpBusy(true);
     try {
       const destination = otpDestination.trim();
-    if (!/^\+?[1-9]\d{7,14}$/.test(destination)) {
+          if (enable && !/^\+?[1-9]\d{7,14}$/.test(destination)) {
         Alert.alert('Invalid destination', 'Enter a valid international phone number, including country code.');
         return;
       }
