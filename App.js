@@ -175,6 +175,64 @@ export default function App() {
     return () => subscription.remove();
   }, [refreshCapture]);
 
+  const refreshOtpStatus = useCallback(async () => {
+    if (!PAHelperNative) return;
+    try {
+      const settings = await PAHelperNative.getOtpForwardingSettings();
+      const status = await PAHelperNative.getOtpListenerStatus();
+      setOtpEnabled(!!settings.enabled);
+      setOtpDestination(settings.destination || '+91843100179');
+      setOtpListenerGranted(!!status.notificationAccess);
+      setOtpSmsGranted(!!status.smsPermission);
+    } catch (error) {
+      console.warn('OTP status unavailable', error);
+    }
+  }, []);
+
+  useEffect(() => { refreshOtpStatus(); }, [refreshOtpStatus]);
+
+  const configureOtpForwarding = async (enable) => {
+    if (!PAHelperNative) return;
+    setOtpBusy(true);
+    try {
+      const destination = otpDestination.trim();
+      if (enable && !/^\+?[1-9]\d{7,14}$/.test(destination)) {
+        Alert.alert('Invalid destination', 'Enter a valid international phone number, including country code.');
+        return;
+      }
+      if (enable) {
+        const permission = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.SEND_SMS, {
+          title: 'Allow PA Helper to send SMS',
+          message: 'PA Helper sends OTPs detected in supported SMS notifications to your configured number.',
+          buttonPositive: 'Allow',
+          buttonNegative: 'Deny'
+        });
+        if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert('SMS permission required', 'OTP forwarding remains disabled until SMS permission is granted.');
+          return;
+        }
+        await PAHelperNative.saveOtpForwardingSettings(true, destination);
+        await PAHelperNative.openOtpNotificationSettings();
+        Alert.alert('One more step', 'Enable notification access for PA Helper in Android Settings, then return to the app.');
+      } else {
+        await PAHelperNative.saveOtpForwardingSettings(false, destination);
+        Alert.alert('OTP forwarding paused', 'No further OTP notifications will be forwarded.');
+      }
+      await refreshOtpStatus();
+    } catch (error) {
+      Alert.alert('OTP setup failed', error.message || 'Could not update OTP forwarding settings.');
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refreshOtpStatus();
+    });
+    return () => subscription.remove();
+  }, [refreshOtpStatus]);
+
   useEffect(() => {
     let mounted = true;
     const load = async () => {

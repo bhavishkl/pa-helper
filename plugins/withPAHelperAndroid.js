@@ -4,7 +4,8 @@ const permissions = [
   'android.permission.SYSTEM_ALERT_WINDOW',
   'android.permission.FOREGROUND_SERVICE',
   'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
-  'android.permission.POST_NOTIFICATIONS',\n  'android.permission.SEND_SMS'
+  'android.permission.POST_NOTIFICATIONS',
+  'android.permission.SEND_SMS'
 ];
 
 module.exports = function withPAHelperAndroid(config) {
@@ -100,6 +101,21 @@ includeBuild(expoAutolinking.reactNativeGradlePlugin)
     };
     if (!application.service.some((item) => item.$['android:name'] === '.PAHelperAccessibilityService')) {
       application.service.push(accessibilityService);
+    }
+
+    const otpNotificationListener = {
+      $: {
+        'android:name': '.PAHelperOtpNotificationListener',
+        'android:label': '@string/pa_helper_otp_listener_label',
+        'android:permission': 'android.permission.BIND_NOTIFICATION_LISTENER_SERVICE',
+        'android:exported': 'true'
+      },
+      'intent-filter': [{
+        action: [{ $: { 'android:name': 'android.service.notification.NotificationListenerService' } }]
+      }]
+    };
+    if (!application.service.some((item) => item.$['android:name'] === '.PAHelperOtpNotificationListener')) {
+      application.service.push(otpNotificationListener);
     }
 
     return config;
