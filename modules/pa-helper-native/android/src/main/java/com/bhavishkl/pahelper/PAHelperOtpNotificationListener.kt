@@ -4,6 +4,9 @@ import android.Manifest
 import android.app.Notification
 import android.content.ComponentName
 import android.content.pm.PackageManager
+import android.app.role.RoleManager
+import android.os.Bundle
+import android.os.Parcelable
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -13,7 +16,7 @@ import java.security.MessageDigest
 
 /**
  * OTP forwarding is opt-in. This listener only examines notifications from
- * known SMS applications; it does not scrape arbitrary app notifications.
+ * the user's default SMS app plus known SMS clients. It does not inspect unrelated apps.
  */
 class PAHelperOtpNotificationListener : NotificationListenerService() {
   companion object {
@@ -54,9 +57,23 @@ class PAHelperOtpNotificationListener : NotificationListenerService() {
     record("listener_disconnected", "Android disconnected the notification listener")
   }
 
+  private fun isSmsPackage(packageName: String): Boolean {
+    if (packageName in SMS_PACKAGES) return true
+    val roleManager = getSystemService(RoleManager::class.java)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+      roleManager?.isRoleAvailable(RoleManager.ROLE_SMS) == true &&
+      packageName in roleManager.getRoleHolders(RoleManager.ROLE_SMS)) return true
+    val name = packageName.lowercase()
+    return name.contains("sms") || name.contains("mms") ||
+      name.contains("messaging") || name.endsWith(".messages")
+  }
+
   override fun onNotificationPosted(sbn: StatusBarNotification?) {
     if (sbn == null) return
-    if (sbn.packageName !in SMS_PACKAGES) return
+    if (!isSmsPackage(sbn.packageName)) {
+      // Keep a privacy-safe count of non-SMS notifications, not their contents.
+      return
+    }
     val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
     val source = sbn.packageName
     prefs.edit().putInt("sms_notifications_seen", prefs.getInt("sms_notifications_seen", 0) + 1).apply()
@@ -74,14 +91,32 @@ class PAHelperOtpNotificationListener : NotificationListenerService() {
       record("empty_notification", "Notification has no extras", source)
       return
     }
-    val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-    val text = buildString {
-      append(extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty())
-      append("\n")
-      append(extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty())
-      val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
-      lines?.forEach { append("\n"); append(it?.toString().orEmpty()) }
-    }.trim()
+    val title = listOf(
+      Notification.EXTRA_TITLE,
+      Notification.EXTRA_TITLE_BIG,
+      Notification.EXTRA_SUB_TEXT,
+      Notification.EXTRA_SUMMARY_TEXT,
+      Notification.EXTRA_INFO_TEXT
+    ).mapNotNull { key -> extras.getCharSequence(key)?.toString()?.takeIf { it.isNotBlank() } }
+      .distinct().joinToString(" | ")
+
+    // SMS clients differ: some use EXTRA_TEXT, others use MessagingStyle bundles.
+    val messageParts = mutableListOf<String>()
+    listOf(Notification.EXTRA_TEXT, Notification.EXTRA_BIG_TEXT, Notification.EXTRA_TEXT_LINES).forEach { key ->
+      when (val value = extras.get(key)) {
+        is CharSequence -> if (value.isNotBlank()) messageParts.add(value.toString())
+        is Array<*> -> value.filterIsInstance<CharSequence>().forEach { if (it.isNotBlank()) messageParts.add(it.toString()) }
+      }
+    }
+    listOf(Notification.EXTRA_MESSAGES, Notification.EXTRA_HISTORIC_MESSAGES).forEach { key ->
+      val messages = extras.getParcelableArray(key)
+      messages?.forEach { item ->
+        val bundle = item as? Bundle
+        val body = bundle?.getCharSequence("text")?.toString()
+        if (!body.isNullOrBlank()) messageParts.add(body)
+      }
+    }
+    val text = (messageParts + title).distinct().joinToString("\\n").trim()
     if (text.isBlank()) {
       record("empty_notification", "SMS notification text is empty or hidden by the messaging app", source)
       return
@@ -131,9 +166,13 @@ class PAHelperOtpNotificationListener : NotificationListenerService() {
   }
 
   private fun extractOtp(message: String): String? {
+    // Support common SMS wording, with the code either before or after its label.
+    // Do not forward arbitrary 4–8 digit numbers unless the surrounding text
+    // identifies them as an OTP, verification code, PIN, or login code.
     val patterns = listOf(
-      Regex("(?i)(?:otp|one[- ]time password|verification code|security code|login code|passcode)\\D{0,32}(\\d{4,8})"),
-      Regex("(?i)(\\d{4,8})\\D{0,24}(?:is your|as your|your otp|verification code)")
+      Regex("(?i)\\\\b(?:otp|one[- ]time password|verification code|security code|login code|passcode|pin|code)\\\\D{0,40}(\\\\d{4,8})\\\\b"),
+      Regex("(?i)\\\\b(\\\\d{4,8})\\\\D{0,40}(?:is your|as your|your otp|otp|verification code|security code|login code|passcode|pin|code)\\\\b"),
+      Regex("(?i)\\\\b(?:use|enter|type|submit)\\\\s+(\\\\d{4,8})\\\\s+(?:to|for)\\\\b")
     )
     return patterns.firstNotNullOfOrNull { it.find(message)?.groupValues?.getOrNull(1) }
   }
