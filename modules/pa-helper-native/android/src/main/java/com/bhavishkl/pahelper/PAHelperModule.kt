@@ -16,9 +16,16 @@ class PAHelperModule : Module() {
     AsyncFunction("getOtpForwardingSettings") {
       val context = appContext.reactContext ?: throw IllegalStateException("React context is not available")
       val prefs = context.getSharedPreferences(PAHelperOtpNotificationListener.PREFS, 0)
+      val storedDestination = prefs.getString("destination", null)
+      val destination = if (storedDestination.isNullOrBlank() || storedDestination == "+91843100179") {
+        prefs.edit().putString("destination", "+918431000179").apply()
+        "+918431000179"
+      } else {
+        storedDestination
+      }
       mapOf(
         "enabled" to prefs.getBoolean("enabled", false),
-        "destination" to (prefs.getString("destination", "+91843100179") ?: "+91843100179")
+        "destination" to destination
       )
     }
 

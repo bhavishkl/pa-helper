@@ -126,7 +126,7 @@ export default function App() {
   const [paymentAccountId, setPaymentAccountId] = useState('');
   const [lastReviewedCaptureAt, setLastReviewedCaptureAt] = useState(0);
   const [otpEnabled, setOtpEnabled] = useState(false);
-  const [otpDestination, setOtpDestination] = useState('+91843100179');
+  const [otpDestination, setOtpDestination] = useState('+918431000179');
   const [otpListenerGranted, setOtpListenerGranted] = useState(false);
   const [otpSmsGranted, setOtpSmsGranted] = useState(false);
   const [otpBusy, setOtpBusy] = useState(false);
@@ -181,7 +181,7 @@ export default function App() {
       const settings = await PAHelperNative.getOtpForwardingSettings();
       const status = await PAHelperNative.getOtpListenerStatus();
       setOtpEnabled(!!settings.enabled);
-      setOtpDestination(settings.destination || '+91843100179');
+      setOtpDestination(settings.destination || '+918431000179');
       setOtpListenerGranted(!!status.notificationAccess);
       setOtpSmsGranted(!!status.smsPermission);
     } catch (error) {
@@ -190,6 +190,25 @@ export default function App() {
   }, []);
 
   useEffect(() => { refreshOtpStatus(); }, [refreshOtpStatus]);
+
+  const saveOtpDestination = async () => {
+    if (!PAHelperNative) return;
+    const destination = otpDestination.trim();
+    if (!/^\\+?[1-9]\\d{7,14}$/.test(destination)) {
+      Alert.alert('Invalid destination', 'Enter a valid international phone number, including country code.');
+      return;
+    }
+    setOtpBusy(true);
+    try {
+      await PAHelperNative.saveOtpForwardingSettings(otpEnabled, destination);
+      setOtpDestination(destination);
+      Alert.alert('Destination saved', 'Future OTPs will be forwarded to ' + destination + '.');
+    } catch (error) {
+      Alert.alert('Could not save destination', error.message || 'Try again.');
+    } finally {
+      setOtpBusy(false);
+    }
+  };
 
   const configureOtpForwarding = async (enable) => {
     if (!PAHelperNative) return;
@@ -503,7 +522,11 @@ export default function App() {
         <Text style={styles.emptyText}>Reads OTP notifications from supported SMS apps only. Codes are processed on this device and sent by SMS to your configured number. No cloud service is used.</Text>
         <Text style={styles.fieldLabel}>FORWARD TO</Text>
         <TextInput value={otpDestination} onChangeText={setOtpDestination} keyboardType="phone-pad"
-          placeholder="+91..." style={styles.input} editable={!otpEnabled} />
+          placeholder="+91..." style={styles.input} editable={!otpBusy} />
+        <TouchableOpacity activeOpacity={0.85} style={styles.secondaryButton}
+          onPress={saveOtpDestination} disabled={otpBusy}>
+          <Text style={styles.secondaryButtonText}>Save destination</Text>
+        </TouchableOpacity>
         <Text style={styles.paymentMeta}>Notification access: {otpListenerGranted ? 'Granted' : 'Not granted'} · SMS permission: {otpSmsGranted ? 'Granted' : 'Not granted'}</Text>
         <Text style={styles.paymentMeta}>Status: {otpEnabled && otpListenerGranted && otpSmsGranted ? 'Active' : otpEnabled ? 'Waiting for permissions' : 'Off'}</Text>
         <TouchableOpacity activeOpacity={0.85} style={styles.primaryWideButton}
