@@ -92,6 +92,29 @@ class PAHelperModule : Module() {
       mapOf("status" to "overlay_started")
     }
 
+    AsyncFunction("getCaptureHistory") {
+      val context = appContext.reactContext
+        ?: throw IllegalStateException("React context is not available")
+      context.getSharedPreferences("pa_helper_capture_history", 0)
+        .getString("history_json", "[]") ?: "[]"
+    }
+
+    AsyncFunction("saveCaptureHistory") { historyJson: String ->
+      val context = appContext.reactContext
+        ?: throw IllegalStateException("React context is not available")
+      context.getSharedPreferences("pa_helper_capture_history", 0)
+        .edit().putString("history_json", historyJson).apply()
+      mapOf("status" to "saved")
+    }
+
+    AsyncFunction("copyText") { value: String ->
+      val context = appContext.reactContext
+        ?: throw IllegalStateException("React context is not available")
+      val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+      clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PA Helper capture", value))
+      mapOf("status" to "copied")
+    }
+
     AsyncFunction("getLatestCapture") {
       val context = appContext.reactContext
         ?: throw IllegalStateException("React context is not available")

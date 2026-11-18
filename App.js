@@ -83,6 +83,8 @@ const parsePaymentText = (raw) => {
 export default function App() {
   const [tab, setTab] = useState('home');
   const [capture, setCapture] = useState({ text: '', capturedAt: 0, status: 'empty', method: '—' });
+  const [captureHistory, setCaptureHistory] = useState([]);
+  const [capturePage, setCapturePage] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const [accounts, setAccounts] = useState([]);
@@ -113,6 +115,17 @@ export default function App() {
     try {
       const latest = await PAHelperNative.getLatestCapture();
       setCapture(latest);
+      if (latest.status === 'success' && latest.text && latest.capturedAt) {
+        const saved = await PAHelperNative.getCaptureHistory();
+        let history = [];
+        try { history = JSON.parse(saved || '[]'); } catch (_) { history = []; }
+        if (!Array.isArray(history)) history = [];
+        if (!history.some((item) => Number(item.capturedAt) === Number(latest.capturedAt))) {
+          history = [{ text: latest.text, capturedAt: latest.capturedAt, method: latest.method || 'OCR' }, ...history].slice(0, 5);
+          await PAHelperNative.saveCaptureHistory(JSON.stringify(history));
+        }
+        setCaptureHistory(history);
+      }
       if (latest.status === 'success' && latest.text && latest.capturedAt) {
         if (latest.capturedAt === lastReviewedCaptureAt) return;
         setLastReviewedCaptureAt(latest.capturedAt);
@@ -337,6 +350,18 @@ export default function App() {
     ]
   );
 
+  const manuallyParseCapture = (item) => {
+    const parsed = parsePaymentText(item.text);
+    if (parsed.kind === 'unknown') {
+      Alert.alert('Payment not identified', 'This capture does not contain a recognised received-from or paid-to pattern. The captured text is still saved.');
+      return;
+    }
+    setPendingPayment({ ...parsed, capturedAt: item.capturedAt });
+    setPaymentAccountId('');
+    setTab('home');
+    Alert.alert('Parsed for review', 'Check the amount and party, then choose an account before confirming.');
+  };
+
   const confirmPaymentImport = () => {
     if (!pendingPayment) return;
     const account = accounts.find((item) => item.id === paymentAccountId);
@@ -441,14 +466,57 @@ export default function App() {
             <Text style={styles.captureText}>{capture.text}</Text>
             <Text style={styles.captureMeta}>Extraction method: {capture.method || 'OCR'}</Text>
             <Text style={styles.captureMeta}>Captured {capture.capturedAt ? new Date(capture.capturedAt).toLocaleString() : ''}</Text>
+            <View style={styles.transactionButtons}>
+              <TouchableOpacity style={[styles.transactionButton, styles.addButton]} onPress={() => PAHelperNative?.copyText(capture.text).then(() => Alert.alert('Copied', 'Captured text copied to clipboard.')).catch((e) => Alert.alert('Copy failed', e.message))}>
+                <Text style={styles.transactionButtonText}>Copy text</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.transactionButton, styles.minusButton]} onPress={() => manuallyParseCapture({ text: capture.text, capturedAt: capture.capturedAt })}>
+                <Text style={styles.transactionButtonText}>Parse manually</Text>
+              </TouchableOpacity>
+            </View>
           </>
         ) : (
-          <Text style={styles.emptyText}>Your extracted text appears here after the Volume Up double-press shortcut. Volume changes are immediate.</Text>
+          <Text style={styles.emptyText}>Your extracted text appears here after the Volume Up double-press shortcut.</Text>
         )}
         <TouchableOpacity style={styles.secondaryButton} onPress={refreshCapture}>
           <Text style={styles.secondaryButtonText}>Refresh captured text</Text>
         </TouchableOpacity>
       </View>
+
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Recent captures</Text>
+        <Text style={styles.sectionHint}>{captureHistory.length}/5 SAVED · SWIPE</Text>
+      </View>
+      {captureHistory.length ? (
+        <>
+          <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={(event) => setCapturePage(Math.round(event.nativeEvent.contentOffset.x / Math.max(1, event.nativeEvent.layoutMeasurement.width)))}>
+            {captureHistory.map((item, index) => (
+              <View key={String(item.capturedAt)} style={styles.captureHistoryCard}>
+                <View style={styles.historyCaptureHeader}>
+                  <Text style={styles.historyCaptureTitle}>Capture {index + 1}</Text>
+                  <Text style={styles.captureMeta}>{new Date(item.capturedAt).toLocaleString()}</Text>
+                </View>
+                <Text style={styles.captureMeta}>Method: {item.method || 'OCR'}</Text>
+                <ScrollView style={styles.historyCaptureTextBox} nestedScrollEnabled>
+                  <Text style={styles.captureText}>{item.text}</Text>
+                </ScrollView>
+                <View style={styles.transactionButtons}>
+                  <TouchableOpacity style={[styles.transactionButton, styles.addButton]} onPress={() => PAHelperNative?.copyText(item.text).then(() => Alert.alert('Copied', 'Captured text copied to clipboard.')).catch((e) => Alert.alert('Copy failed', e.message))}>
+                    <Text style={styles.transactionButtonText}>Copy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.transactionButton, styles.minusButton]} onPress={() => manuallyParseCapture(item)}>
+                    <Text style={styles.transactionButtonText}>Parse manually</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+          <Text style={styles.capturePager}>{capturePage + 1} / {captureHistory.length}</Text>
+        </>
+      ) : (
+        <View style={styles.captureCard}><Text style={styles.emptyText}>Your five most recent successful captures will appear here. Swipe horizontally to browse them.</Text></View>
+      )}
 
       <View style={styles.tipCard}>
         <Text style={styles.tipIcon}>✦</Text>
@@ -672,6 +740,11 @@ const styles = StyleSheet.create({
   captureCard: { backgroundColor: '#FFFFFF', borderRadius: 17, padding: 16, borderWidth: 1, borderColor: '#EEF0F5', marginBottom: 22 },
   captureText: { color: '#273449', fontSize: 13, lineHeight: 20 },
   captureMeta: { color: '#9AA3B2', fontSize: 10, marginTop: 12 },
+  captureHistoryCard: { width: 305, backgroundColor: '#FFFFFF', borderRadius: 17, padding: 16, borderWidth: 1, borderColor: '#EEF0F5', marginRight: 12, marginBottom: 8 },
+  historyCaptureHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  historyCaptureTitle: { color: '#202B40', fontSize: 14, fontWeight: '800' },
+  historyCaptureTextBox: { maxHeight: 180, marginTop: 10, paddingVertical: 8 },
+  capturePager: { textAlign: 'center', color: '#9AA3B2', fontSize: 10, marginBottom: 16 },
   emptyText: { color: '#8B93A2', fontSize: 12, lineHeight: 19 },
   secondaryButton: { backgroundColor: '#EEF3FC', padding: 12, borderRadius: 12, alignItems: 'center', marginTop: 14 },
   secondaryButtonText: { color: '#243B70', fontSize: 12, fontWeight: '800' },
