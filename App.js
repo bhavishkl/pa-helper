@@ -19,14 +19,20 @@ const parsePaymentText = (raw) => {
   const text = String(raw || '');
   const lower = text.toLowerCase();
   const isReceived = /received\s+from|credited\s+to/.test(lower);
-  const isPaid = /paid\s+to|sent\s+to|debited\s+from/.test(lower);
+  // PhonePe's payment-success screen can omit the usual "Paid to" label.
+  // Only treat it as an outgoing payment when the "Total Payable" field exists.
+  const isPhonePePayScreen = /payment\s+successful/i.test(text) && /total\s+payable/i.test(text);
+  const isPaid = /paid\s+to|sent\s+to|debited\s+from/.test(lower) || isPhonePePayScreen;
   if (isReceived === isPaid) return { kind: 'unknown', amount: null, confidence: 'low', raw: text };
 
   const kind = isReceived ? 'add' : 'minus';
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const bankingName = text.match(/banking\s+name\s*:\s*([^\n]+)/i)?.[1]?.trim() || '';
   const dateMatch = text.match(/(\d{1,2}:\d{2}\s*(?:AM|PM)\s+on\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{4})/i);
-  const paymentDateText = dateMatch?.[1] || '';
+  const phonePeDateMatch = isPhonePePayScreen
+    ? text.match(/(\d{1,2}\s+[A-Za-z]+\s+20\d{2}\s+at\s+\d{1,2}:\d{2}\s*(?:AM|PM))/i)
+    : null;
+  const paymentDateText = dateMatch?.[1] || phonePeDateMatch?.[1] || '';
 
   // Accessibility often puts "Received from" and the payer name on one row.
   // OCR can instead put the name on the next row. Support both layouts.
@@ -40,6 +46,9 @@ const parsePaymentText = (raw) => {
     .replace(/^[\s:|·-]+|[\s|·-]+$/g, '')
     .trim();
   let party = cleanParty(isReceived ? receivedMatch?.[1] : sentMatch?.[1]);
+  if (isPhonePePayScreen && !isReceived && !party) {
+    party = text.match(/\bX{3,}[A-Z0-9]*\d{3,}\b/i)?.[0] || 'UPI payment';
+  }
   if (!party || /^(?:₹|rs\.?|inr)?\s*[\d,.]+(?:\/-)?$/i.test(party)) {
     const index = lines.findIndex((line) => /received\s+from|paid\s+to|sent\s+to/i.test(line));
     const next = index >= 0 ? lines[index + 1] : '';
@@ -66,11 +75,23 @@ const parsePaymentText = (raw) => {
       if (Number.isFinite(value) && value > 0 && value <= 100000000) candidates.push(value);
     }
   }
-  const preferred = currencyValues.length ? currencyValues : candidates;
+  // The screen repeats the payable amount in several places and may also
+  // prefix the date with ₹. Prefer the explicitly labelled Total Payable value.
+  const totalPayableMatch = isPhonePePayScreen
+    ? text.match(/total\s+payable[\s\S]{0,60}?₹\s*([\d,]+(?:\.\d{1,2})?)/i)
+    : null;
+  const totalPayableAmount = totalPayableMatch
+    ? Number(totalPayableMatch[1].replace(/,/g, ''))
+    : null;
+  const preferred = Number.isFinite(totalPayableAmount) && totalPayableAmount > 0
+    ? [totalPayableAmount]
+    : (currencyValues.length ? currencyValues : candidates);
   const uniqueAmounts = [...new Set(preferred)];
   const amount = uniqueAmounts.length === 1 ? uniqueAmounts[0] : null;
   const amountCandidates = [...new Set([...currencyValues, ...candidates])];
-  const parsedDate = paymentDateText ? Date.parse(paymentDateText.replace(/\s+on\s+/i, ' ')) : NaN;
+  const parsedDate = paymentDateText
+    ? Date.parse(paymentDateText.replace(/\s+on\s+/i, ' ').replace(/\s+at\s+/i, ' '))
+    : NaN;
   return {
     kind, amount, amountCandidates,
     confidence: amount == null ? 'low' : (currencyValues.length ? 'currency_match_review' : 'review'),
