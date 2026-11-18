@@ -4,12 +4,12 @@ import android.Manifest
 import android.app.Notification
 import android.content.ComponentName
 import android.content.pm.PackageManager
-import android.app.role.RoleManager
 import android.os.Bundle
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.telephony.SmsManager
+import android.provider.Telephony
 import android.util.Log
 import java.security.MessageDigest
 
@@ -58,10 +58,8 @@ class PAHelperOtpNotificationListener : NotificationListenerService() {
 
   private fun isSmsPackage(packageName: String): Boolean {
     if (packageName in SMS_PACKAGES) return true
-    val roleManager = getSystemService(RoleManager::class.java)
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-      roleManager?.isRoleAvailable(RoleManager.ROLE_SMS) == true &&
-      packageName in roleManager.getRoleHolders(RoleManager.ROLE_SMS)) return true
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT &&
+      Telephony.Sms.getDefaultSmsPackage(this) == packageName) return true
     val name = packageName.lowercase()
     return name.contains("sms") || name.contains("mms") ||
       name.contains("messaging") || name.endsWith(".messages")
