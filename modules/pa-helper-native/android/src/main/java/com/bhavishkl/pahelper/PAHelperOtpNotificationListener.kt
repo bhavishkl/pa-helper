@@ -6,7 +6,6 @@ import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.app.role.RoleManager
 import android.os.Bundle
-import android.os.Parcelable
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -170,9 +169,9 @@ class PAHelperOtpNotificationListener : NotificationListenerService() {
     // Do not forward arbitrary 4–8 digit numbers unless the surrounding text
     // identifies them as an OTP, verification code, PIN, or login code.
     val patterns = listOf(
-      Regex("(?i)\\\\b(?:otp|one[- ]time password|verification code|security code|login code|passcode|pin|code)\\\\D{0,40}(\\\\d{4,8})\\\\b"),
-      Regex("(?i)\\\\b(\\\\d{4,8})\\\\D{0,40}(?:is your|as your|your otp|otp|verification code|security code|login code|passcode|pin|code)\\\\b"),
-      Regex("(?i)\\\\b(?:use|enter|type|submit)\\\\s+(\\\\d{4,8})\\\\s+(?:to|for)\\\\b")
+      Regex("(?i)\\b(?:otp|one[- ]time password|verification code|security code|login code|passcode|pin|code)\\D{0,40}(\\d{4,8})\\b"),
+      Regex("(?i)\\b(\\d{4,8})\\D{0,40}(?:is your|as your|your otp|otp|verification code|security code|login code|passcode|pin|code)\\b"),
+      Regex("(?i)\\b(?:use|enter|type|submit)\\s+(\\d{4,8})\\s+(?:to|for)\\b")
     )
     return patterns.firstNotNullOfOrNull { it.find(message)?.groupValues?.getOrNull(1) }
   }
