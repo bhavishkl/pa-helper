@@ -40,11 +40,18 @@ class PAHelperOtpNotificationListener : NotificationListenerService() {
   private fun record(event: String, detail: String, source: String = "") {
     val prefs = getSharedPreferences(PREFS, MODE_PRIVATE)
     prefs.edit()
+      .putBoolean("listener_connected", if (event == "listener_connected") true else prefs.getBoolean("listener_connected", false))
       .putString("last_event", event)
       .putString("last_detail", detail.take(180))
       .putString("last_source", source.take(100))
       .putLong("last_event_at", System.currentTimeMillis())
       .apply()
+  }
+
+  override fun onListenerDisconnected() {
+    super.onListenerDisconnected()
+    getSharedPreferences(PREFS, MODE_PRIVATE).edit().putBoolean("listener_connected", false).apply()
+    record("listener_disconnected", "Android disconnected the notification listener")
   }
 
   override fun onNotificationPosted(sbn: StatusBarNotification?) {
